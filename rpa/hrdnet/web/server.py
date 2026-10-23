@@ -172,6 +172,14 @@ def panel() -> str:
     return (STATIC / "panel.html").read_text(encoding="utf-8")
 
 
+@app.get("/api/backups")
+def backups():
+    from .. import backup
+    cfg = config.load()
+    return {"root": str(backup.backup_root(cfg)), "keep_days": int(cfg.get("backup_keep_days", backup.DEFAULT_KEEP_DAYS) or 0),
+            "archive_root": cfg.get("archive_root", ""), "items": backup.list_backups(cfg)}
+
+
 @app.get("/api/state")
 def state(request: Request):
     cfg = config.load()

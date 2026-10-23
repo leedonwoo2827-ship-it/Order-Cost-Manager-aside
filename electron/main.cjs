@@ -201,7 +201,7 @@ ipcMain.handle('rpa:launch', async () => {
 });
 
 // 대시보드 화면 → rpa 엔진 API (허용한 경로만). 회차 정리·모의/미리채움/신청 실행·상태 조회에 쓴다.
-const RPA_API_ALLOWED = new Set(['/api/state', '/api/run', '/api/stop']);
+const RPA_API_ALLOWED = new Set(['/api/state', '/api/run', '/api/stop', '/api/backups']);
 
 ipcMain.handle('rpa:api', async (event, req) => {
   const method = req?.method === 'POST' ? 'POST' : 'GET';

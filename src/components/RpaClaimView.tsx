@@ -19,6 +19,24 @@ interface RpaState {
   rounds: RpaRound[];
 }
 
+interface BackupItem {
+  name: string;
+  path: string;
+  시각: string;
+  회차: { folder: string; 회차: string; 사업장: number; 신청금액: number; 상태: string; 끝: string }[];
+  파일: number;
+  MB: number;
+  장기보관: boolean;
+  삭제예정: string;
+}
+
+interface BackupList {
+  root: string;
+  keep_days: number;
+  archive_root: string;
+  items: BackupItem[];
+}
+
 type Mode = 'simulate' | 'dry-run' | 'fill' | 'live';
 
 const MODES: { id: Mode; label: string; hint: string; flag: string }[] = [
@@ -35,6 +53,7 @@ interface RpaClaimViewProps {
 export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
   const [state, setState] = useState<RpaState | null>(null);
   const [offline, setOffline] = useState(false);
+  const [backups, setBackups] = useState<BackupList | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
@@ -43,6 +62,8 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
     if (res.ok && res.data) {
       setState(res.data as RpaState);
       setOffline(false);
+      const bk = await window.rpaApi.call({ path: '/api/backups' });
+      if (bk.ok && bk.data) setBackups(bk.data as BackupList);
     } else {
       setOffline(true);
     }
@@ -199,6 +220,48 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
             증빙누락 회차는 전자계산서 PDF가 없습니다. 위하고 출력본을 증빙 폴더에 넣고 「▶ 정리」를 다시 누르세요.
           </p>
         )}
+      </div>
+
+      <div className="border-t border-slate-200 px-5 py-3">
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-bold text-slate-800">백업 보관함</span>
+          <span className="text-slate-500">
+            {backups ? `${backups.items.length}건 · 보관 ${backups.keep_days > 0 ? `${backups.keep_days}일` : '삭제 안 함'}` : ''}
+            {backups?.archive_root ? ` · 장기 보관처: ${backups.archive_root}` : ' · 장기 보관처 미지정(local.json의 archive_root)'}
+          </span>
+          <button type="button" onClick={() => void window.rpa?.openBackup()}
+            className="ml-auto rounded-lg border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50">
+            백업 폴더 열기
+          </button>
+        </div>
+        {backups && backups.items.length === 0 && (
+          <p className="text-[11px] text-slate-400">아직 백업이 없습니다. 위의 「백업·정리」를 누르면 끝난 회차가 여기에 쌓입니다.</p>
+        )}
+        <div className="max-h-56 space-y-2 overflow-auto">
+          {backups?.items.map((b) => (
+            <details key={b.name} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+              <summary className="cursor-pointer select-none">
+                <span className="font-semibold text-slate-800">{b.시각}</span>
+                <span className="ml-2 text-slate-600">회차 {b.회차.length}개 · 파일 {b.파일}개 · {b.MB}MB</span>
+                <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold ${b.장기보관 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                  {b.장기보관 ? '장기 보관 완료' : '장기 보관 전'}
+                </span>
+                {b.삭제예정 && <span className="ml-2 text-slate-400">삭제 예정 {b.삭제예정}</span>}
+              </summary>
+              <ul className="mt-2 space-y-1">
+                {b.회차.map((r) => (
+                  <li key={r.folder} className="flex flex-wrap gap-x-3 text-slate-700">
+                    <span className="max-w-[26rem] truncate" title={r.folder}>{r.folder}</span>
+                    <span>{r.사업장}곳</span>
+                    <span className="font-semibold">{r.상태 || '-'}</span>
+                    <span className="text-slate-400">{r.끝}</span>
+                  </li>
+                ))}
+                <li className="pt-1 font-mono text-[10px] text-slate-400">{b.path}</li>
+              </ul>
+            </details>
+          ))}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
