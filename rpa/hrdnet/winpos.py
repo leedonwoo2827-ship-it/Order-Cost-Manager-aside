@@ -80,10 +80,15 @@ def open_panel(port: int) -> bool:
         return False
     w, h = screen()
     pw = int(config.load()["panel_width"])
+    # screen()은 실제 화소, Chrome 창 옵션은 배율(예: 150%)을 나눈 값이라 맞춰 준다. 안 그러면 화면 밖에 뜬다.
+    try:
+        k = max(1.0, user32.GetDpiForSystem() / 96)
+    except Exception:  # noqa: BLE001
+        k = 1.0
     prof = config.dirs()["root"] / "_panel_profile"
     subprocess.Popen([exe, f"--app=http://127.0.0.1:{port}/panel", f"--user-data-dir={prof}",
                       "--no-first-run", "--no-default-browser-check",
-                      f"--window-size={pw},{h}", f"--window-position={w - pw},0"],
+                      f"--window-size={int(pw / k)},{int(h / k)}", f"--window-position={int((w - pw) / k)},0"],
                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return True
 
