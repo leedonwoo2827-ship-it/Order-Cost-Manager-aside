@@ -239,6 +239,20 @@ ipcMain.handle('rpa:open-results', async () => {
   return {ok: !err, dir, error: err};
 });
 
+// 백업 폴더(기본 <data_root>/_백업)를 탐색기로 연다
+ipcMain.handle('rpa:open-backup', async () => {
+  let dir = path.join(rpaDataRoot(), '_백업');
+  try {
+    const local = JSON.parse(fsSync.readFileSync(path.join(rpaDir(), 'local.json'), 'utf8'));
+    if (local.backup_root) dir = local.backup_root;
+  } catch {
+    // 설정이 없으면 기본 위치
+  }
+  await fs.mkdir(dir, {recursive: true});
+  const err = await shell.openPath(dir);
+  return {ok: !err, dir, error: err};
+});
+
 // 엔진이 만든 완료처리대상 CSV → 대시보드가 비용신청여부를 일괄 반영
 ipcMain.handle('rpa:completed', async () => {
   const dir = path.join(rpaDataRoot(), '결과');

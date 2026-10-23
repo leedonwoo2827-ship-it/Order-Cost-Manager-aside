@@ -76,6 +76,14 @@ export const RpaRunModal: React.FC<RpaRunModalProps> = ({ isOpen, onClose, onSho
     window.setTimeout(() => void window.rpa?.openResults(), 3000);
   };
 
+  const backup = async (includeTest: boolean) => {
+    const what = includeTest ? '신청 성공 + 모의·점검·채움까지 끝난' : '신청 성공한';
+    if (!window.confirm(`${what} 회차의 파일을 백업 폴더로 옮깁니다.
+지우지 않고 옮기기만 하며, 결과표와 아직 안 끝난 회차는 그대로 둡니다.`)) return;
+    await run(includeTest ? ['backup', '--include-test'] : ['backup'], '백업을 시작했습니다. 잠시 뒤 백업 폴더가 열립니다.');
+    window.setTimeout(() => void window.rpa?.openBackup(), 3000);
+  };
+
   const organize = () => run(['organize'], '정리를 시작했습니다. 오른쪽 패널에서 진행을 볼 수 있어요.');
 
   const start = (mode: (typeof MODES)[number]) => {
@@ -128,6 +136,11 @@ export const RpaRunModal: React.FC<RpaRunModalProps> = ({ isOpen, onClose, onSho
             <button type="button" onClick={organize} disabled={offline || state?.busy}
               className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
               ▶ 정리 (내보낸 증빙을 회차별로 묶기)
+            </button>
+            <button type="button" onClick={(e) => void backup(e.shiftKey)} disabled={offline || state?.busy}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              title="신청 성공한 회차의 파일을 지우지 않고 백업 폴더로 옮깁니다. Shift 를 누르고 누르면 모의·점검·채움 회차도 포함합니다.">
+              백업·정리
             </button>
             <button type="button" onClick={makeResult} disabled={offline || state?.busy}
               className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"

@@ -14,6 +14,7 @@ declare global {
       launch: () => Promise<{ok: boolean; reason?: string}>;
       completed: () => Promise<{items: {course: string; round: string}[]}>;
       openResults: () => Promise<{ok: boolean; dir: string; error?: string}>;
+      openBackup: () => Promise<{ok: boolean; dir: string; error?: string}>;
     };
   }
 

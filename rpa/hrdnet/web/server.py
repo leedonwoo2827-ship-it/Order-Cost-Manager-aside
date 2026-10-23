@@ -27,9 +27,9 @@ from pydantic import BaseModel
 from .. import config
 
 STATIC = Path(__file__).parent / "static"
-ALLOWED = {"sample", "fetch", "organize", "inspect", "hrdnet-open", "upload-all", "result"}
+ALLOWED = {"sample", "fetch", "organize", "inspect", "hrdnet-open", "upload-all", "result", "backup"}
 NAMES = {"sample": "샘플 넣기", "fetch": "1 받기(다운로드 감시)", "organize": "2 정리", "inspect": "화면 진단",
-         "hrdnet-open": "HRD-Net 열기", "upload-all": "3 올리기", "result": "4 결과"}
+         "hrdnet-open": "HRD-Net 열기", "upload-all": "3 올리기", "result": "4 결과", "backup": "백업·정리"}
 MODES = {"--simulate": "모의 실행", "--dry-run": "점검(찾기만)", "--fill": "미리 채워 보기"}
 LOCAL_HOSTS = {"127.0.0.1", "::1"}
 UI_PORT = 0
@@ -249,7 +249,7 @@ def run(req: RunReq):
     if not req.args or req.args[0] not in ALLOWED:
         raise HTTPException(400, "허용되지 않은 명령이에요")
     for a in req.args[1:]:
-        if a.startswith("--") and a.split("=", 1)[0] not in ("--simulate", "--dry-run", "--fill", "--only"):
+        if a.startswith("--") and a.split("=", 1)[0] not in ("--simulate", "--dry-run", "--fill", "--only", "--include-test"):
             raise HTTPException(400, f"허용되지 않은 옵션: {a}")
     if req.args[0] == "upload-all" and not any(a.startswith("--only=") for a in req.args):
         raise HTTPException(400, "올릴 회차를 골라 주세요")
