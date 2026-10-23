@@ -200,6 +200,37 @@ ipcMain.handle('rpa:launch', async () => {
   return {ok: opened, reason: opened ? '' : 'Chrome 또는 Edge를 찾지 못해 패널을 열지 못했습니다'};
 });
 
+// 대시보드 화면 → rpa 엔진 API (허용한 경로만). 회차 정리·모의/미리채움/신청 실행·상태 조회에 쓴다.
+const RPA_API_ALLOWED = new Set(['/api/state', '/api/run', '/api/stop']);
+
+ipcMain.handle('rpa:api', async (event, req) => {
+  const method = req?.method === 'POST' ? 'POST' : 'GET';
+  const urlPath = String(req?.path || '');
+  if (!RPA_API_ALLOWED.has(urlPath)) return {ok: false, status: 400, error: '허용되지 않은 경로'};
+  const body = method === 'POST' ? JSON.stringify(req?.body ?? {}) : '';
+  return new Promise((resolve) => {
+    const r = http.request(
+      {host: '127.0.0.1', port: RPA_PORT, path: urlPath, method, timeout: 8000,
+        headers: {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body)}},
+      (res) => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { text += chunk; });
+        res.on('end', () => {
+          let data = null;
+          try { data = JSON.parse(text); } catch { data = null; }
+          resolve({ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data,
+            error: data?.detail || ''});
+        });
+      },
+    );
+    r.on('error', () => resolve({ok: false, status: 0, error: '엔진에 연결할 수 없습니다'}));
+    r.on('timeout', () => { r.destroy(); resolve({ok: false, status: 0, error: '엔진 응답 없음'}); });
+    if (body) r.write(body);
+    r.end();
+  });
+});
+
 // 엔진이 만든 완료처리대상 CSV → 대시보드가 비용신청여부를 일괄 반영
 ipcMain.handle('rpa:completed', async () => {
   const dir = path.join(rpaDataRoot(), '결과');

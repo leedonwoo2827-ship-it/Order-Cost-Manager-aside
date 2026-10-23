@@ -10,3 +10,7 @@ contextBridge.exposeInMainWorld('rpa', {
   launch: () => ipcRenderer.invoke('rpa:launch'),
   completed: () => ipcRenderer.invoke('rpa:completed'),
 });
+
+contextBridge.exposeInMainWorld('rpaApi', {
+  call: (req) => ipcRenderer.invoke('rpa:api', req),
+});

@@ -21,6 +21,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { ReceiptExportModal } from './ReceiptExportModal';
+import { RpaRunModal } from './RpaRunModal';
 import { groupReceiptRows, isReceiptEligible } from '../utils/receiptDocument';
 import { buildCostClaimPayload, isCostClaimTarget, roundKey } from '../utils/costClaim';
 
@@ -56,6 +57,7 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
   const [sortAsc, setSortAsc] = useState(true);
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [claimBusy, setClaimBusy] = useState(false);
+  const [runModalOpen, setRunModalOpen] = useState(false);
   const [initialReceiptGroupKey, setInitialReceiptGroupKey] = useState<string | null>(null);
 
   const receiptGroups = useMemo(() => groupReceiptRows(data), [data]);
@@ -235,7 +237,12 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
       }
       onShowToast?.(`내보냄: ${exported.rows}행 · 수납확인서 ${exported.receipts}건 (${exported.root})`, 'success');
       const launched = await window.rpa.launch();
-      if (!launched.ok) onShowToast?.(launched.reason || '사이드 패널을 열지 못했습니다.', 'error');
+      if (!launched.ok) {
+        onShowToast?.(launched.reason || '사이드 패널을 열지 못했습니다.', 'error');
+      } else {
+        await window.rpaApi?.call({ method: 'POST', path: '/api/run', body: { args: ['organize'] } });
+        setRunModalOpen(true);
+      }
     } catch (error) {
       onShowToast?.(`비용신청 연결 실패: ${error instanceof Error ? error.message : String(error)}`, 'error');
     } finally {
@@ -493,6 +500,15 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
                 title="수금 확인된 회차를 HRD-Net 비용신청으로 올립니다. 로그인과 최종 신청은 사람이 합니다."
               >
                 <span>{claimBusy ? '여는 중...' : `HRD-Net 비용신청 올리기 (${claimTargetCount})`}</span>
+              </button>
+              <button
+                id="btn-open-rpa-run"
+                type="button"
+                onClick={() => setRunModalOpen(true)}
+                className="px-2.5 py-1 text-[11px] font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-300 rounded-lg transition"
+                title="회차를 골라 모의 실행 · 점검 · 미리 채워 보기 · 신청을 실행합니다."
+              >
+                회차 실행
               </button>
               <button
                 id="btn-open-rpa-panel"
@@ -937,6 +953,8 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
           </table>
         </div>
       </div>
+
+      <RpaRunModal isOpen={runModalOpen} onClose={() => setRunModalOpen(false)} onShowToast={onShowToast} />
 
       <ReceiptExportModal
         isOpen={receiptModalOpen}

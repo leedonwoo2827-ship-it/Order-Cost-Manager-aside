@@ -6,6 +6,9 @@ declare global {
       saveOne: (payload: {fileName: string; html: string}) => Promise<{saved: boolean; filePath?: string}>;
       saveMany: (payload: {documents: {fileName: string; html: string}[]}) => Promise<{saved: boolean; directory?: string; count?: number}>;
     };
+    rpaApi?: {
+      call: (req: {method?: 'GET' | 'POST'; path: '/api/state' | '/api/run' | '/api/stop'; body?: unknown}) => Promise<{ok: boolean; status: number; data: any; error?: string}>;
+    };
     rpa?: {
       exportClaims: (payload: RpaExportPayload) => Promise<{saved: boolean; reason?: string; root?: string; csvPath?: string; rows?: number; receipts?: number}>;
       launch: () => Promise<{ok: boolean; reason?: string}>;
