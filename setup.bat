@@ -2,7 +2,7 @@
 rem One-time setup: dashboard (Node) + RPA engine (Python). Run once per PC.
 rem NOTE: .bat files must stay ASCII + CRLF.
 cd /d "%~dp0"
-title Order-Cost-Manager setup (do not close this window)
+title [SETUP] install - do not close until done
 where node >nul 2>&1
 if errorlevel 1 (
   echo.

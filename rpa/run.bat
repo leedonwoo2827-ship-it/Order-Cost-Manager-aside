@@ -11,6 +11,6 @@ if not exist .venv\setup_ok (
 chcp 65001 >nul
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
-if "%~1"=="" title HRD claim workshop - keep this window open while the dashboard is in use
+if "%~1"=="" title [2] RPA ENGINE - keep open, minimize ok
 .venv\Scripts\python.exe -m hrdnet %*
 exit /b %errorlevel%

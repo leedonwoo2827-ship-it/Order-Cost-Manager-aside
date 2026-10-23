@@ -3,7 +3,7 @@ rem HRD claim workshop - one-time setup. Messages are printed by setup_env.py (K
 rem NOTE: .bat files must stay ASCII + CRLF.
 cd /d "%~dp0"
 chcp 65001 >nul
-title HRD claim workshop - setup (do not close this window)
+title [SETUP] RPA engine install - do not close until done
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 where python >nul 2>&1

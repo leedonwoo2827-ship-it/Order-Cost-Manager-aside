@@ -181,7 +181,7 @@ ipcMain.handle('rpa:launch', async () => {
     const bat = path.join(dir, 'run.bat');
     if (!fsSync.existsSync(bat)) return {ok: false, reason: `rpa 폴더를 찾지 못했습니다: ${dir}`};
     // 경로 없이 run.bat 만 쓰면 NoDefaultCurrentDirectoryInExePath 가 켜진 PC에서 못 찾는다
-    const child = spawn('cmd.exe', ['/c', bat], {
+    const child = spawn('cmd.exe', ['/c', 'start', '', '/min', bat], {
       cwd: dir,
       detached: true,
       stdio: 'ignore',
