@@ -5,7 +5,7 @@ rem   run.bat organize     any CLI command: python -m hrdnet ...
 rem NOTE: .bat files must stay ASCII + CRLF.
 cd /d "%~dp0"
 if not exist .venv\setup_ok (
-  call setup.bat nopause
+  call "%~dp0setup.bat" nopause
   if errorlevel 1 exit /b 1
 )
 chcp 65001 >nul

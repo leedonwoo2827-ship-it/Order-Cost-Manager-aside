@@ -3,7 +3,7 @@ rem Start the dashboard. The side panel opens from the purple/white buttons in t
 rem NOTE: .bat files must stay ASCII + CRLF.
 cd /d "%~dp0"
 if not exist node_modules\ (
-  call setup.bat
+  call "%~dp0setup.bat"
   if errorlevel 1 exit /b 1
 )
 if not exist dist\index.html call npm run build

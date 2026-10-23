@@ -3,7 +3,7 @@ rem HRD claim dashboard - open READ-ONLY to other PCs on the same network (LAN).
 rem Does not change local.json; next time run.bat starts it for this PC only again.
 cd /d "%~dp0"
 if not exist .venv\setup_ok (
-  call setup.bat nopause
+  call "%~dp0setup.bat" nopause
   if errorlevel 1 goto :fail
 )
 set PYTHONIOENCODING=utf-8
