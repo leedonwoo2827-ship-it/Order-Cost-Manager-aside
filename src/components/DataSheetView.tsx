@@ -243,6 +243,17 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
     }
   };
 
+  const openRpaPanel = async () => {
+    if (!window.rpa) return;
+    setClaimBusy(true);
+    try {
+      const launched = await window.rpa.launch();
+      onShowToast?.(launched.ok ? '사이드 패널을 열었습니다.' : launched.reason || '사이드 패널을 열지 못했습니다.', launched.ok ? 'success' : 'error');
+    } finally {
+      setClaimBusy(false);
+    }
+  };
+
   // RPA가 만든 완료처리대상 → 비용신청여부 일괄 체크
   const applyCompletedClaims = async () => {
     if (!window.rpa) return;
@@ -482,6 +493,16 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
                 title="수금 확인된 회차를 HRD-Net 비용신청으로 올립니다. 로그인과 최종 신청은 사람이 합니다."
               >
                 <span>{claimBusy ? '여는 중...' : `HRD-Net 비용신청 올리기 (${claimTargetCount})`}</span>
+              </button>
+              <button
+                id="btn-open-rpa-panel"
+                type="button"
+                onClick={openRpaPanel}
+                disabled={claimBusy}
+                className="px-2.5 py-1 text-[11px] font-semibold text-indigo-700 bg-white hover:bg-indigo-50 border border-indigo-300 rounded-lg transition disabled:opacity-40"
+                title="증빙을 다시 만들지 않고 사이드 패널(RPA 엔진)만 엽니다."
+              >
+                사이드 패널 열기
               </button>
               <button
                 id="btn-apply-cost-claim-done"
