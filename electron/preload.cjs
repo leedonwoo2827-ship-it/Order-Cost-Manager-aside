@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('rpa', {
   exportClaims: (payload) => ipcRenderer.invoke('rpa:export', payload),
   launch: () => ipcRenderer.invoke('rpa:launch'),
   completed: () => ipcRenderer.invoke('rpa:completed'),
+  openResults: () => ipcRenderer.invoke('rpa:open-results'),
 });
 
 contextBridge.exposeInMainWorld('rpaApi', {

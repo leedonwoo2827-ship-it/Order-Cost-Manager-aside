@@ -231,6 +231,14 @@ ipcMain.handle('rpa:api', async (event, req) => {
   });
 });
 
+// 결과표(결과_YYYYMMDD.xlsx · 완료처리대상_*.csv)가 있는 폴더를 탐색기로 연다
+ipcMain.handle('rpa:open-results', async () => {
+  const dir = path.join(rpaDataRoot(), '결과');
+  await fs.mkdir(dir, {recursive: true});
+  const err = await shell.openPath(dir);
+  return {ok: !err, dir, error: err};
+});
+
 // 엔진이 만든 완료처리대상 CSV → 대시보드가 비용신청여부를 일괄 반영
 ipcMain.handle('rpa:completed', async () => {
   const dir = path.join(rpaDataRoot(), '결과');

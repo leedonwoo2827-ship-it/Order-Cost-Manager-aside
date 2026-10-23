@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { IntegratedDataRow } from '../types';
 import {
   Download,
@@ -58,6 +58,40 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [claimBusy, setClaimBusy] = useState(false);
   const [runModalOpen, setRunModalOpen] = useState(false);
+  const [rpaStatus, setRpaStatus] = useState<Record<string, string>>({});
+
+  // 자동입력 상태 열: 엔진이 켜져 있으면 회차별 정리·올리기 결과를 가져온다
+  useEffect(() => {
+    if (!window.rpaApi) return undefined;
+    let alive = true;
+    const load = async () => {
+      if (document.hidden) return;
+      const res = await window.rpaApi!.call({ path: '/api/state' });
+      if (!alive || !res.ok || !res.data?.rounds) return;
+      const next: Record<string, string> = {};
+      for (const r of res.data.rounds as { 과정명: string; 회차: string; 정리: string; 올리기: string }[]) {
+        next[roundKey(String(r.과정명), r.회차)] = r.올리기 && r.올리기 !== '미실행' ? r.올리기 : r.정리;
+      }
+      setRpaStatus(next);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const rpaBadge = (status: string | undefined) => {
+    if (!status) return <span className="text-slate-300">-</span>;
+    const tone =
+      status === '성공' ? 'bg-emerald-100 text-emerald-800'
+      : status === '준비완료' ? 'bg-sky-100 text-sky-800'
+      : status === '증빙누락' ? 'bg-rose-100 text-rose-700'
+      : ['실패', '오류', '중단'].includes(status) ? 'bg-red-100 text-red-700'
+      : 'bg-indigo-100 text-indigo-800';
+    return <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${tone}`}>{status}</span>;
+  };
   const [initialReceiptGroupKey, setInitialReceiptGroupKey] = useState<string | null>(null);
 
   const receiptGroups = useMemo(() => groupReceiptRows(data), [data]);
@@ -662,6 +696,9 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
                 {/* 비용신청 (4%) */}
                 <th className="py-2 px-0.5 text-center w-[4%]">비용신청</th>
 
+                {/* 자동입력 상태 (RPA) */}
+                {window.rpa && <th className="py-2 px-0.5 text-center w-[5%]" title="HRD-Net 자동입력 진행 상태">자동입력</th>}
+
                 {/* 환급일자 (6%) */}
                 <th className="py-2 px-1 text-center w-[6%]">환급일자</th>
 
@@ -676,7 +713,7 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
             <tbody className="divide-y divide-slate-200/70 text-slate-800">
               {filteredData.length === 0 ? (
                 <tr>
-                  <td colSpan={17} className="py-16 text-center text-slate-500">
+                  <td colSpan={18} className="py-16 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center space-y-2">
                       <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
                         <Layers className="w-5 h-5" />
@@ -889,6 +926,11 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
                           )}
                         </button>
                       </td>
+
+                      {/* 자동입력 상태 (RPA) */}
+                      {window.rpa && (
+                        <td className="py-1.5 px-0.5 text-center">{rpaBadge(rpaStatus[roundKey(row.courseName, row.hrdRound)])}</td>
+                      )}
 
                       {/* 환급일자 */}
                       <td className="py-1.5 px-1 text-center font-mono text-[10px] text-slate-600">

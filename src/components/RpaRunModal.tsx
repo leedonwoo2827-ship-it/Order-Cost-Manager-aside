@@ -71,6 +71,11 @@ export const RpaRunModal: React.FC<RpaRunModalProps> = ({ isOpen, onClose, onSho
     void refresh();
   };
 
+  const makeResult = async () => {
+    await run(['result'], '결과표를 만들었습니다. 잠시 뒤 결과 폴더가 열립니다.');
+    window.setTimeout(() => void window.rpa?.openResults(), 3000);
+  };
+
   const organize = () => run(['organize'], '정리를 시작했습니다. 오른쪽 패널에서 진행을 볼 수 있어요.');
 
   const start = (mode: (typeof MODES)[number]) => {
@@ -123,6 +128,11 @@ export const RpaRunModal: React.FC<RpaRunModalProps> = ({ isOpen, onClose, onSho
             <button type="button" onClick={organize} disabled={offline || state?.busy}
               className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
               ▶ 정리 (내보낸 증빙을 회차별로 묶기)
+            </button>
+            <button type="button" onClick={makeResult} disabled={offline || state?.busy}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              title="오늘 실행한 기록을 결과표(엑셀)와 완료처리 대상(CSV)으로 만들고 폴더를 엽니다.">
+              4 결과표
             </button>
             <button type="button" onClick={() => void window.rpaApi?.call({ method: 'POST', path: '/api/stop', body: {} })}
               className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-1 font-semibold text-rose-700 hover:bg-rose-100">

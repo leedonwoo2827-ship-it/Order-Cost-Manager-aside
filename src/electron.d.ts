@@ -13,6 +13,7 @@ declare global {
       exportClaims: (payload: RpaExportPayload) => Promise<{saved: boolean; reason?: string; root?: string; csvPath?: string; rows?: number; receipts?: number}>;
       launch: () => Promise<{ok: boolean; reason?: string}>;
       completed: () => Promise<{items: {course: string; round: string}[]}>;
+      openResults: () => Promise<{ok: boolean; dir: string; error?: string}>;
     };
   }
 
