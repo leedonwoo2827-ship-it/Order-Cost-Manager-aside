@@ -3,8 +3,8 @@ import { Table, UploadCloud, BookOpen, Download, RefreshCw, FolderSync, FolderOp
 import { TrainingCenter } from '../types';
 
 interface NavbarProps {
-  activeTab: 'data' | 'deposit-invoice' | 'upload' | 'mappings';
-  setActiveTab: (tab: 'data' | 'deposit-invoice' | 'upload' | 'mappings') => void;
+  activeTab: 'data' | 'deposit-invoice' | 'upload' | 'mappings' | 'claim';
+  setActiveTab: (tab: 'data' | 'deposit-invoice' | 'upload' | 'mappings' | 'claim') => void;
   totalCount: number;
   needReviewCount: number;
   depositCount?: number;
@@ -139,6 +139,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
               )}
             </button>
+
+            {window.rpa && (
+              <button
+                id="nav-tab-claim"
+                onClick={() => setActiveTab('claim')}
+                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'claim'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-indigo-200 hover:text-white hover:bg-slate-700/50'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                <span>HRD-Net 비용신청</span>
+              </button>
+            )}
 
             <button
               id="nav-tab-upload"

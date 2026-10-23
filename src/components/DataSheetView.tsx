@@ -21,7 +21,6 @@ import {
   FileText,
 } from 'lucide-react';
 import { ReceiptExportModal } from './ReceiptExportModal';
-import { RpaRunModal } from './RpaRunModal';
 import { groupReceiptRows, isReceiptEligible } from '../utils/receiptDocument';
 import { buildCostClaimPayload, isCostClaimTarget, roundKey } from '../utils/costClaim';
 
@@ -30,6 +29,7 @@ interface DataSheetViewProps {
   onUpdateRow: (updatedRow: IntegratedDataRow) => void;
   onExportExcel: () => void;
   onNavigateToMappings: () => void;
+  onOpenClaimTab?: () => void;
   onRefreshSharedFolder?: () => Promise<void>;
   onConnectDirectory?: () => void;
   isRefreshing?: boolean;
@@ -42,6 +42,7 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
   onUpdateRow,
   onExportExcel,
   onNavigateToMappings,
+  onOpenClaimTab,
   onRefreshSharedFolder,
   onConnectDirectory,
   isRefreshing = false,
@@ -57,7 +58,6 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
   const [sortAsc, setSortAsc] = useState(true);
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [claimBusy, setClaimBusy] = useState(false);
-  const [runModalOpen, setRunModalOpen] = useState(false);
   const [rpaStatus, setRpaStatus] = useState<Record<string, string>>({});
 
   // 자동입력 상태 열: 엔진이 켜져 있으면 회차별 정리·올리기 결과를 가져온다
@@ -275,7 +275,7 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
         onShowToast?.(launched.reason || '사이드 패널을 열지 못했습니다.', 'error');
       } else {
         await window.rpaApi?.call({ method: 'POST', path: '/api/run', body: { args: ['organize'] } });
-        setRunModalOpen(true);
+        onOpenClaimTab?.();
       }
     } catch (error) {
       onShowToast?.(`비용신청 연결 실패: ${error instanceof Error ? error.message : String(error)}`, 'error');
@@ -538,11 +538,11 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
               <button
                 id="btn-open-rpa-run"
                 type="button"
-                onClick={() => setRunModalOpen(true)}
+                onClick={() => onOpenClaimTab?.()}
                 className="px-2.5 py-1 text-[11px] font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-300 rounded-lg transition"
-                title="회차를 골라 모의 실행 · 점검 · 미리 채워 보기 · 신청을 실행합니다."
+                title="「HRD-Net 비용신청」 탭으로 이동합니다 (회차 선택 · 모의 실행 · 미리 채워 보기 · 신청)."
               >
-                회차 실행
+                비용신청 탭 열기
               </button>
               <button
                 id="btn-open-rpa-panel"
@@ -995,8 +995,6 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
           </table>
         </div>
       </div>
-
-      <RpaRunModal isOpen={runModalOpen} onClose={() => setRunModalOpen(false)} onShowToast={onShowToast} />
 
       <ReceiptExportModal
         isOpen={receiptModalOpen}

@@ -38,6 +38,7 @@ import { MappingDictionaryView } from './components/MappingDictionaryView';
 import { ConnectSharedFolderModal } from './components/ConnectSharedFolderModal';
 import { ClearDataModal, ClearDataTargets } from './components/ClearDataModal';
 import { TeamManualModal } from './components/TeamManualModal';
+import { RpaClaimView } from './components/RpaClaimView';
 import { AddTrainingCenterModal } from './components/AddTrainingCenterModal';
 import { CheckCircle2, AlertCircle, X, FolderSync } from 'lucide-react';
 
@@ -199,7 +200,7 @@ interface WorkspaceAppProps {
 function WorkspaceApp({ center, centers, onChangeCenter, onEditCenter, onAddCenter }: WorkspaceAppProps) {
   const STORAGE_KEYS = getStorageKeys(center.id);
   const isPrimaryCenter = center.id === PRIMARY_CENTER_ID;
-  const [activeTab, setActiveTab] = useState<'data' | 'deposit-invoice' | 'upload' | 'mappings'>('data');
+  const [activeTab, setActiveTab] = useState<'data' | 'deposit-invoice' | 'upload' | 'mappings' | 'claim'>('data');
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -747,6 +748,7 @@ function WorkspaceApp({ center, centers, onChangeCenter, onEditCenter, onAddCent
             onUpdateRow={handleUpdateRow}
             onExportExcel={handleExportExcel}
             onNavigateToMappings={() => setActiveTab('mappings')}
+            onOpenClaimTab={() => setActiveTab('claim')}
             onRefreshSharedFolder={handleRefreshSharedFolder}
             onConnectDirectory={handleConnectDirectory}
             isRefreshing={isRefreshing}
@@ -774,6 +776,8 @@ function WorkspaceApp({ center, centers, onChangeCenter, onEditCenter, onAddCent
             onShowToast={showToast}
           />
         )}
+
+        {activeTab === 'claim' && <RpaClaimView onShowToast={showToast} />}
 
         {activeTab === 'upload' && (
           <UploadManager
