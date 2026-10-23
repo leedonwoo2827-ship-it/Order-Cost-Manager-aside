@@ -1,6 +1,0 @@
-{
-  "name": "수주 및 비용 통합 관리 프로그램",
-  "description": "훈련내역, 계산서발행내역, 입금내역 자동 매핑 및 부분/합산 입금 예외 처리를 지원하는 수주 및 비용 통합 관리 웹앱과 로컬 Python Streamlit 실행 환경 제공",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

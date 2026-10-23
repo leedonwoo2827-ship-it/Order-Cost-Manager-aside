@@ -19,7 +19,7 @@
 - 아이콘: lucide-react
 - 엑셀 처리: xlsx
 - 데이터 저장: 브라우저 localStorage
-- 로컬 실행: `run-local.bat` 또는 `npm run dev`
+- 로컬 실행: `run.bat` (이 포크 기준) 또는 `npm run dev`
 
 핵심 파일은 다음과 같습니다.
 
@@ -29,7 +29,7 @@
 - `src/components/DepositInvoiceView.tsx`: 입금-계산서 대조 화면
 - `src/components/UploadManager.tsx`: 파일/공유폴더 업로드 관리
 - `src/components/MappingDictionaryView.tsx`: 거래처/입금자 매핑 사전 관리
-- `run-local.bat`: Windows 더블클릭 실행 파일
+- `run.bat` / `setup.bat`: Windows 더블클릭 실행·설치 파일 (이 포크에서 `run-local.bat`을 대체)
 
 ## 3. 실행 방법
 
@@ -110,7 +110,7 @@ Order-Cost-Manager-Portable-0.0.0.exe
 
 - `node_modules/`: 현재 PC에서 바로 실행하기 위한 설치 의존성
 - `package-lock.json`: npm 설치 결과를 고정하기 위한 잠금 파일
-- `run-local.bat`: 로컬 실행용 배치 파일
+- `run.bat`, `setup.bat`: 실행·설치용 배치 파일
 
 `dist/`는 빌드 산출물 폴더이며, 필요하면 아래 명령으로 다시 생성됩니다.
 
@@ -140,7 +140,7 @@ npm run dev
 
 ## 10. 참고 및 주의사항
 
-- 현재 프로젝트는 Git 저장소로 초기화되어 있지 않습니다.
+- 이 포크는 Git 저장소입니다 (leedonwoo2827-ship-it/Order-Cost-Manager-aside).
 - `xlsx` 패키지는 엑셀 파싱과 다운로드에 사용됩니다.
 - `npm audit` 기준 `xlsx` 관련 high 취약점이 보고됩니다. 외부에서 받은 신뢰할 수 없는 엑셀 파일을 처리하는 환경이라면 추후 대체 라이브러리 또는 보안 대응 검토가 필요합니다.
 - `package.json`에는 AI Studio 템플릿에서 온 것으로 보이는 미사용 의존성이 일부 남아 있습니다. 정식 배포 전에는 실제 import 여부를 기준으로 정리하는 것이 좋습니다.
