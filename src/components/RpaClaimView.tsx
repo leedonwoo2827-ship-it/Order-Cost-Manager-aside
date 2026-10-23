@@ -54,6 +54,7 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
   const [state, setState] = useState<RpaState | null>(null);
   const [offline, setOffline] = useState(false);
   const [backups, setBackups] = useState<BackupList | null>(null);
+  const [withTest, setWithTest] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
@@ -156,11 +157,15 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
             className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
             ▶ 정리 (내보낸 증빙을 회차별로 묶기)
           </button>
-          <button type="button" onClick={(e) => void backup(e.shiftKey)} disabled={offline || state?.busy}
+          <button type="button" onClick={() => void backup(withTest)} disabled={offline || state?.busy}
             className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            title="신청 성공한 회차의 파일을 지우지 않고 백업 폴더로 옮깁니다. Shift 를 누르고 누르면 모의·점검·채움 회차도 포함합니다.">
+            title="신청 성공한 회차의 파일을 지우지 않고 백업 폴더로 옮깁니다. 오른쪽 체크를 켜면 모의·점검·채움 회차도 포함합니다.">
             백업·정리
           </button>
+          <label className="flex items-center gap-1 text-[11px] text-slate-600" title="연습(모의 실행 등)으로 끝난 회차도 백업으로 옮깁니다. 영상·시험 데이터를 정리할 때 켭니다.">
+            <input type="checkbox" checked={withTest} onChange={(e) => setWithTest(e.target.checked)} />
+            모의·점검 회차도
+          </label>
           <button type="button" onClick={makeResult} disabled={offline || state?.busy}
             className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             title="오늘 실행한 기록을 결과표(엑셀)와 완료처리 대상(CSV)으로 만들고 폴더를 엽니다.">
