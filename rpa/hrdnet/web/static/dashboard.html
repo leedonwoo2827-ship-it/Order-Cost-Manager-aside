@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>비용신청 공방</title>
+<style>
+:root{--bg:#F6F1E8;--card:#fff;--ink:#1d2433;--sub:#64748b;--line:#e5ded2;--acc:#1F4E79;--acc2:#0f766e;--ok:#15803d;--warn:#b45309;--bad:#b91c1c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 "Pretendard Variable",Pretendard,"Malgun Gothic",sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:10px 20px;background:var(--acc);color:#fff;position:sticky;top:0;z-index:6;flex-wrap:wrap}
+header h1{font-size:17px;margin:0;font-weight:800}
+.who{font-size:12.5px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.dot{width:9px;height:9px;border-radius:50%;background:#94a3b8;display:inline-block;margin-right:4px}
+.dot.on{background:#4ade80}.dot.off{background:#f87171}.dot.busy{background:#fbbf24}
+nav.top{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+nav.top button{background:none;border:none;color:#dbe7f3;font-weight:700;font-size:15px;padding:7px 13px;border-radius:8px;cursor:pointer}
+nav.top button.on{background:#fff;color:var(--acc)}
+header .stop{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:7px;padding:6px 11px;cursor:pointer;font:inherit}
+main{padding:16px 20px calc(var(--logh,210px) + 30px)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+h2{font-size:15px;margin:0 0 10px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.kpi span{color:var(--sub);font-size:13px}.kpi b{display:block;font-size:30px;font-weight:800;margin-top:4px}
+button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:7px;padding:6px 11px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:#b9ae9a}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:700}
+button.go{background:var(--acc2);border-color:var(--acc2);color:#fff;font-weight:700}
+button.hot{background:var(--bad);border-color:var(--bad);color:#fff;font-weight:700}
+button:disabled{opacity:.45;cursor:default}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sep{color:#b9ae9a}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+td,th{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:middle}
+th{font-weight:700}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.click{cursor:pointer}tr.click:hover td{background:#fbf8f2}
+tr.sel td{background:#fff7ec}
+.pill{font-size:12px;padding:1px 8px;border-radius:99px;background:#efe9de;color:var(--sub);white-space:nowrap}
+.pill.ok{background:#dcfce7;color:var(--ok)}.pill.warn{background:#fef3c7;color:var(--warn)}.pill.bad{background:#fee2e2;color:var(--bad)}.pill.blue{background:#dbeafe;color:#1d4ed8}
+.muted{color:var(--sub);font-size:12.5px}
+.txt{white-space:pre-wrap;background:#fbf8f2;border:1px solid var(--line);border-radius:8px;padding:10px;max-height:360px;overflow:auto;font:12.5px/1.5 Consolas,"Malgun Gothic",monospace}
+.drop{border:2px dashed #c9bfae;border-radius:10px;padding:18px 10px;text-align:center;color:var(--sub);cursor:pointer}
+.drop.on{background:#fff4e6;border-color:var(--acc)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.ask{border:2px solid var(--warn);background:#fffbeb;border-radius:10px;padding:12px 14px;margin-bottom:14px}
+.ask.confirm{border-color:var(--bad);background:#fef2f2}
+.ask b{display:block;margin-bottom:8px;font-size:15px}
+label{font-size:12px;color:var(--sub);display:block;margin:8px 0 3px}
+input{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%;background:#fffdf8}
+.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.shots img{width:100%;border:1px solid var(--line);border-radius:6px}
+#log{position:fixed;left:0;right:0;bottom:0;height:var(--logh,210px);background:#1d1b18;color:#e9e3d6;font:12.5px/1.5 Consolas,"Malgun Gothic",monospace;padding:8px 20px;overflow:auto;white-space:pre-wrap}
+#logbar{position:fixed;left:0;right:0;bottom:var(--logh,210px);height:10px;cursor:ns-resize;background:#3a362f;z-index:5}
+.ro{background:#FFF4D6;border:1px solid #E5C76B;color:#9A6B00;font-weight:700;padding:8px 12px;border-radius:6px;margin-bottom:12px}
+@media (max-width:900px){.cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>비용신청 · 공방</h1>
+  <div class="who"><span><span class="dot" id="hdot"></span><span id="htxt">HRD-Net</span></span><span><span class="dot" id="bdot"></span><span id="btxt">대기</span></span></div>
+  <nav class="top" id="tabs">
+    <button data-t="in">① 받기·정리</button><button data-t="rounds">② 회차</button><button data-t="view">③ 결과 보기</button><button data-t="up">④ 올리기</button><button data-t="set" class="adm">설정</button>
+  </nav>
+  <button class="stop adm" onclick="post('/api/stop')">■ 멈춤</button>
+</header>
+<main>
+  <div id="ro" class="ro" style="display:none">읽기 전용으로 보고 있습니다 — 실행은 담당자 PC 에서만 됩니다. 화면 캡처는 보이지 않습니다.</div>
+  <div id="ask"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <section data-p="in">
+    <div class="cols">
+      <div class="card">
+        <h2>1 받기</h2>
+        <div class="drop adm" id="drop">수주및비용대시보드 엑셀 · 전자계산서/수납확인서 pdf 를 여기에 끌어다 놓기 (또는 눌러서 고르기)<input type="file" id="pick" multiple accept=".xlsx,.csv,.pdf" style="display:none"></div>
+        <div class="row adm" style="margin-top:10px">
+          <button onclick="go(['fetch','30'])" title="다운로드 폴더에 새로 생긴 엑셀·pdf 를 inbox 로 옮긴다">다운로드 폴더 감시 30분</button>
+          <button onclick="post('/api/open',{what:'inbox'})">inbox 열기</button>
+          <span class="sep">|</span><button onclick="go(['sample'])">샘플 넣기</button>
+        </div>
+        <h2 style="margin-top:14px">inbox</h2>
+        <div id="inbox" class="muted"></div>
+      </div>
+      <div class="card">
+        <h2>2 정리 <span class="muted" style="font-weight:400">inbox → outbox/과정_회차 + manifest + 검증 리포트</span></h2>
+        <div class="row adm"><button class="pri" onclick="go(['organize'])">▶ 2 정리</button><button onclick="post('/api/open',{what:'outbox'})">outbox 열기</button></div>
+        <h2 style="margin-top:14px">검증 리포트 <span class="muted" id="repname" style="font-weight:400"></span></h2>
+        <div class="txt" id="report"></div>
+      </div>
+    </div>
+  </section>
+
+  <section data-p="rounds">
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <b>고른 회차</b> <span class="muted" id="selinfo">(아직 안 골랐어요)</span>
+        <span class="adm row">
+          <button onclick="up('--simulate')" title="HRD-Net 없이 순서만">모의 실행</button>
+          <button onclick="up('--dry-run')" title="화면에서 버튼을 찾기만 하고 누르지 않음">3 점검</button>
+          <button class="go" onclick="up('--fill')" title="다 채우고 [훈련비용 신청] 앞에서 멈춤">3 미리 채워 보기</button>
+          <button class="pri" onclick="up('')" title="최종 신청은 버튼으로 한 번 더 확인">▶ 3 신청</button>
+          <span class="sep">|</span><button onclick="go(['result'])">4 결과표</button>
+        </span>
+      </div>
+      <table><thead><tr><th><input type="checkbox" id="all" style="width:auto"></th><th>과정</th><th>회차</th><th class="n">사업장</th><th>첨부</th><th class="n">신청금액</th><th class="n">인원</th><th>정리</th><th>올리기</th><th>마지막</th><th>오류</th></tr></thead><tbody id="rows"></tbody></table>
+      <p class="muted">체크한 회차에만 위 버튼이 적용돼요. 줄을 누르면 「③ 결과 보기」로 가요. 증빙누락 회차는 올리지 않아요.</p>
+    </div>
+  </section>
+
+  <section data-p="view">
+    <div class="card"><div id="detail" class="muted">「② 회차」에서 줄을 눌러 주세요.</div></div>
+  </section>
+
+  <section data-p="up">
+    <div class="card">
+      <h2>올리기 · HRD-Net</h2>
+      <div class="row adm">
+        <button class="pri" onclick="go(['hrdnet-open'])">HRD-Net 열기 (왼쪽 배치)</button>
+        <button onclick="post('/api/panel/open')">사이드 패널 열기</button>
+        <button onclick="go(['inspect'])">화면 진단</button>
+        <button onclick="post('/api/open',{what:'steps'})">steps.yaml</button>
+        <button onclick="post('/api/open',{what:'templates'})">버튼 이미지 폴더</button>
+      </div>
+      <p class="muted">순서: HRD-Net 열기 → <b>로그인(인증서)은 사람이</b> → 「② 회차」에서 고르고 「미리 채워 보기」로 확인 → 「신청」. 왼쪽 HRD-Net, 오른쪽 사이드 패널에서 진행이 보이고, 사람이 할 단계와 최종 신청은 패널 버튼으로 답해요.</p>
+      <div id="nowbox"></div>
+    </div>
+    <div class="card"><h2>최근 실행</h2><table><thead><tr><th>시작</th><th>과정</th><th>회차</th><th>모드</th><th>결과</th><th class="n">완료</th><th class="n">자동</th><th class="n">사람</th><th class="n">못찾음</th><th>오류</th></tr></thead><tbody id="runs"></tbody></table>
+      <div class="row adm" style="margin-top:8px"><button onclick="post('/api/open',{what:'결과'})">결과 폴더 열기</button><span class="muted" id="results"></span></div></div>
+  </section>
+
+  <section data-p="set">
+    <div class="card" style="max-width:760px">
+      <h2>설정 <span class="muted" style="font-weight:400">local.json</span></h2>
+      <label>HRD-Net 실행 파일(또는 바탕화면 바로가기 .lnk) 경로</label><input id="c_hrdnet_exe">
+      <label>다운로드 폴더 (받기 감시)</label><input id="c_downloads">
+      <label>수주및비용대시보드 주소 (웹이면)</label><input id="c_dashboard_url">
+      <label>단계 사이 쉬는 시간(초)</label><input id="c_step_delay">
+      <label>이미지 찾기 정확도 (0~1)</label><input id="c_image_confidence">
+      <label>사이드 패널 폭(px)</label><input id="c_panel_width">
+      <label>사이드 패널 브라우저 경로 (비우면 Chrome/Edge 자동)</label><input id="c_browser">
+      <label>다른 PC 열람 비밀번호 <span id="pwset"></span></label><input id="c_viewer_password" type="password" placeholder="바꿀 때만 입력">
+      <div class="row" style="margin-top:12px"><button class="pri" onclick="saveCfg()">저장</button><span class="muted">데이터: <span id="root"></span></span></div>
+    </div>
+  </section>
+</main>
+<div id="logbar"></div>
+<div id="log"></div>
+<script>
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const won = v => Number(v || 0).toLocaleString('ko-KR');
+const PILL = {'성공':'ok','준비완료':'ok','채움완료':'ok','실패':'bad','오류':'bad','중단':'bad','증빙누락':'bad','점검완료':'blue','모의완료':'blue','미실행':''};
+const pill = v => `<span class="pill ${PILL[v] ?? ''}">${esc(v || '—')}</span>`;
+let S = null, SEL = new Set(JSON.parse(localStorage.getItem('hrd_sel') || '[]')), CUR = localStorage.getItem('hrd_cur') || '', since = 0, TAB = localStorage.getItem('hrd_tab') || 'rounds';
+
+const quiet = async u => { const r = await fetch(u); if (!r.ok) throw new Error(r.status); return r.json() };
+async function api(u, o = {}) { const r = await fetch(u, {headers: {'Content-Type': 'application/json'}, ...o}); if (!r.ok) { let m = await r.text(); try { m = JSON.parse(m).detail } catch (e) {} alert(m); throw new Error(m) } return r.json() }
+const post = (u, b = {}) => api(u, {method: 'POST', body: JSON.stringify(b)});
+const go = args => post('/api/run', {args}).then(refresh);
+function up(mode) {
+  const only = [...SEL].filter(f => S.rounds.some(r => r.folder === f && r.정리 === '준비완료'));
+  if (!only.length) return alert('준비완료 회차를 하나 이상 체크해 주세요');
+  if (mode === '' && !confirm(`${only.length}개 회차를 HRD-Net 에 실제로 신청합니다.\n최종 [훈련비용 신청] 앞에서 한 번 더 묻습니다.`)) return;
+  go(['upload-all', ...(mode ? [mode] : []), '--only=' + only.join(',')]);
+  setTab('up');
+}
+function setTab(t) { TAB = t; localStorage.setItem('hrd_tab', t); $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t)); $$('section[data-p]').forEach(s => s.style.display = s.dataset.p === t ? '' : 'none'); if (t === 'view') detail(); }
+$$('#tabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
+
+function askBox(a) {
+  if (!a) return '';
+  const btn = {ok: '<button class="pri" onclick="ans(\'ok\')">다 했어요</button>', skip: '<button onclick="ans(\'skip\')">건너뛰기</button>',
+    stop: '<button onclick="ans(\'stop\')">멈춤</button>', '신청': '<button class="hot" onclick="ans(\'신청\')">훈련비용 신청</button>',
+    next: '<button class="pri" onclick="ans(\'next\')">다음 회차로</button>'};
+  const head = {human: '사람이 해 줄 단계', confirm: '최종 신청 확인', next: '다음 회차?'}[a.kind];
+  return `<div class="ask ${a.kind === 'confirm' ? 'confirm' : ''}"><b>${head}</b><div style="margin-bottom:8px">${esc(a.msg)}</div>${S.admin ? `<div class="row">${a.options.map(o => btn[o] || '').join('')}</div>` : ''}</div>`;
+}
+const ans = a => post('/api/answer', {id: S.ask.id, answer: a}).then(refresh);
+
+async function refresh() {
+  S = await quiet('/api/state');
+  document.body.classList.toggle('viewer', !S.admin);
+  $$('.adm').forEach(e => e.style.display = S.admin ? '' : 'none');
+  $('#ro').style.display = S.admin ? 'none' : '';
+  $('#hdot').className = 'dot ' + (S.hrdnet.length ? 'on' : 'off');
+  $('#htxt').textContent = S.hrdnet.length ? 'HRD-Net 창 있음' : 'HRD-Net 창 없음';
+  $('#bdot').className = 'dot ' + (S.busy ? 'busy' : 'on');
+  $('#btxt').textContent = S.busy ? S.label + ' 하는 중' : '대기';
+  const k = S.kpi;
+  $('#kpis').innerHTML = [['회차', k.회차], ['올리기 준비완료', k.준비완료], ['증빙 누락', k.증빙누락], ['미리 채움 완료', k.채움완료], ['신청 성공', k.성공], ['실패·오류·중단', k.문제]]
+    .map(([a, b]) => `<div class="kpi"><span>${a}</span><b>${b}</b></div>`).join('');
+  $('#ask').innerHTML = askBox(S.ask);
+  $('#inbox').innerHTML = (S.inbox.length ? S.inbox.map(f => `<div>📄 ${esc(f.name)}</div>`).join('') : '엑셀 없음') + `<div style="margin-top:6px">증빙 pdf ${S.pdfs.length}개${S.pdfs.length ? ': ' + S.pdfs.slice(0, 8).map(esc).join(', ') + (S.pdfs.length > 8 ? ' …' : '') : ''}</div>`;
+  $('#report').textContent = S.report || '아직 정리하지 않았어요';
+  $('#repname').textContent = S.report_name;
+  SEL = new Set([...SEL].filter(f => S.rounds.some(r => r.folder === f)));
+  $('#rows').innerHTML = S.rounds.map(r => `<tr class="click ${r.folder === CUR ? 'sel' : ''}" data-f="${esc(r.folder)}">
+    <td onclick="event.stopPropagation()"><input type="checkbox" style="width:auto" ${SEL.has(r.folder) ? 'checked' : ''} ${r.정리 !== '준비완료' ? 'disabled title="증빙누락 — 올릴 수 없어요"' : ''} onchange="tog('${esc(r.folder)}',this.checked)"></td>
+    <td><b>${esc(r.과정명)}</b></td><td>${esc(r.회차)}회차</td><td class="n">${r.사업장}</td>
+    <td>${r.첨부.length ? r.첨부.map(a => `<span class="pill ok">${esc(a)}</span>`).join(' ') : pill('없음')}</td>
+    <td class="n">${won(r.신청금액)}</td><td class="n">${esc(r.훈련인원)}</td><td>${pill(r.정리)}</td>
+    <td>${pill(r.올리기)} <span class="muted">${esc(r.모드)}</span></td><td class="muted">${esc((r.끝 || '').slice(5, 16))}</td><td class="muted">${esc((r.오류 || '').slice(0, 40))}</td></tr>`).join('')
+    || '<tr><td colspan="11" class="muted">아직 정리된 회차가 없어요 — 「① 받기·정리」에서 [▶ 2 정리]</td></tr>';
+  $$('#rows tr.click').forEach(tr => tr.onclick = () => { CUR = tr.dataset.f; localStorage.setItem('hrd_cur', CUR); setTab('view') });
+  $('#selinfo').textContent = SEL.size ? `${SEL.size}개` : '(아직 안 골랐어요)';
+  $('#all').checked = SEL.size && SEL.size === S.rounds.filter(r => r.정리 === '준비완료').length;
+  const n = S.now;
+  $('#nowbox').innerHTML = n ? `<div class="ask" style="border-color:var(--acc);background:#eff6ff"><b>진행 중 · ${esc(n.과정명)} ${esc(n.회차)}회차 · ${esc(n.모드)}</b>${esc(n.i)}/${esc(n.n)} 단계 [${esc(n.id)}] ${esc(n.say)}</div>` : '';
+  $('#runs').innerHTML = S.runs.map(s => `<tr><td class="muted">${esc((s.시작 || '').slice(5, 16))}</td><td>${esc(s.과정명)}</td><td>${esc(s.회차)}</td><td>${esc(s.모드)}</td><td>${pill(s.상태)}</td><td class="n">${s.완료}/${s.단계수}</td><td class="n">${s.자동}</td><td class="n">${s.사람}</td><td class="n">${s.못찾음}</td><td class="muted">${esc((s.오류 || '').slice(0, 50))}</td></tr>`).join('') || '<tr><td colspan="10" class="muted">없음</td></tr>';
+  $('#results').textContent = S.results.length ? '최근: ' + S.results.slice(-2).join(', ') : '';
+  $('#root').textContent = S.root;
+}
+function tog(f, on) { on ? SEL.add(f) : SEL.delete(f); localStorage.setItem('hrd_sel', JSON.stringify([...SEL])); $('#selinfo').textContent = SEL.size ? `${SEL.size}개` : '(아직 안 골랐어요)' }
+$('#all').onchange = e => { S.rounds.filter(r => r.정리 === '준비완료').forEach(r => e.target.checked ? SEL.add(r.folder) : SEL.delete(r.folder)); localStorage.setItem('hrd_sel', JSON.stringify([...SEL])); refresh() };
+
+async function detail() {
+  if (!CUR) return;
+  let x; try { x = await quiet('/api/round/' + encodeURIComponent(CUR)) } catch (e) { $('#detail').textContent = '「② 회차」에서 줄을 눌러 주세요.'; return }
+  const m = x.manifest, RES = {'자동': 'ok', 'ok': 'ok', '사람': 'warn', '확인만': 'blue', '채움까지만': 'ok', '건너뜀': ''};
+  const shots = x.steps.filter(s => s.file);
+  $('#detail').innerHTML = `<h2>${esc(m.과정명)} ${esc(m.회차)}회차 <span class="muted" style="font-weight:400">검색기간 ${esc(m.검색시작)} ~ ${esc(m.검색종료)} · 정리 ${esc(m.정리일시)} · 원본 ${esc(m.원본)}</span></h2>
+  <div class="cols"><div><table><tr><th>사업장명</th><th>관리번호</th><th class="n">인원</th><th class="n">금액</th></tr>${(m.사업장 || []).map(b => `<tr><td>${esc(b.사업장명)}</td><td class="muted">${esc(b.사업장관리번호)}</td><td class="n">${esc(b.훈련인원)}</td><td class="n">${won(b.신청금액)}</td></tr>`).join('')}</table></div>
+  <div><table><tr><th>첨부</th><th>파일</th></tr>${Object.entries(m.첨부 || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="muted">${esc(v)}</td></tr>`).join('') || '<tr><td colspan=2>' + pill('없음') + '</td></tr>'}</table>
+  <p>정리 ${pill(m.상태)} · 올리기 ${pill((m.올리기 || {}).상태 || '미실행')}</p></div></div>
+  <h2 style="margin-top:14px">실행 이력</h2><table><tr><th>시작</th><th>모드</th><th>결과</th><th class="n">완료</th><th class="n">자동</th><th class="n">사람</th><th>오류</th></tr>${x.runs.map(s => `<tr><td class="muted">${esc((s.시작 || '').slice(5, 16))}</td><td>${esc(s.모드)}</td><td>${pill(s.상태)}</td><td class="n">${s.완료}/${s.단계수}</td><td class="n">${s.자동}</td><td class="n">${s.사람}</td><td class="muted">${esc(s.오류 || '')}</td></tr>`).join('') || '<tr><td colspan=7 class=muted>아직 실행 안 함</td></tr>'}</table>
+  <h2 style="margin-top:14px">마지막 실행 — 단계별</h2><table><tr><th>시각</th><th>단계</th><th>내용</th><th>찾은 방법</th><th>결과</th></tr>${x.steps.map(s => `<tr><td class="muted">${esc(s.at)}</td><td class="muted">${esc(s.id)}</td><td>${esc(s.say)}</td><td>${esc(s.found || '')}</td><td><span class="pill ${RES[s.result] ?? ''}">${esc(s.result)}</span> ${s.popup ? '<span class="muted">' + esc(s.popup.slice(0, 60)) + '</span>' : ''}</td></tr>`).join('') || '<tr><td colspan=5 class=muted>기록 없음</td></tr>'}</table>
+  ${S && S.admin && shots.length ? `<h2 style="margin-top:14px">화면 캡처</h2><div class="shots">${shots.map(s => `<a href="/shots/${encodeURIComponent(s.file)}" target="_blank"><img src="/shots/${encodeURIComponent(s.file)}" alt="${esc(s.id)}"></a>`).join('')}</div>` : ''}`;
+}
+
+async function loadCfg() { if (!S.admin) return; const c = await api('/api/config'); for (const k of ['hrdnet_exe', 'downloads', 'dashboard_url', 'step_delay', 'image_confidence', 'panel_width', 'browser']) $('#c_' + k).value = c[k] ?? ''; $('#pwset').textContent = c.viewer_password ? '(설정됨)' : '(없음)' }
+async function saveCfg() { const b = {}; for (const k of ['hrdnet_exe', 'downloads', 'dashboard_url', 'step_delay', 'image_confidence', 'panel_width', 'browser', 'viewer_password']) b[k] = $('#c_' + k).value; await api('/api/config', {method: 'PUT', body: JSON.stringify(b)}); $('#c_viewer_password').value = ''; loadCfg(); alert('저장했어요') }
+
+// 파일 넣기
+const drop = $('#drop'), pick = $('#pick');
+drop.onclick = () => pick.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('on') };
+drop.ondragleave = () => drop.classList.remove('on');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('on'); sendFiles(e.dataTransfer.files) };
+pick.onchange = () => sendFiles(pick.files);
+async function sendFiles(fs) { for (const f of fs) { const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f) }); await post('/api/file', {filename: f.name, data}) } refresh() }
+
+// 로그
+async function pollLog() {
+  try { const r = await quiet('/api/log?since=' + since); if (r.lines.length) { const el = $('#log'), atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 30; el.textContent += r.lines.join('\n') + '\n'; if (atEnd) el.scrollTop = el.scrollHeight } since = r.next } catch (e) {}
+  setTimeout(pollLog, 1000);
+}
+(() => { const bar = $('#logbar'); let y0, h0; bar.onmousedown = e => { y0 = e.clientY; h0 = $('#log').offsetHeight; document.onmousemove = m => document.documentElement.style.setProperty('--logh', Math.max(60, h0 + y0 - m.clientY) + 'px'); document.onmouseup = () => document.onmousemove = null } })();
+
+let lastBusy = false;
+async function loop() { try { await refresh(); if (TAB === 'view' && (S.busy || lastBusy)) detail(); lastBusy = S.busy } catch (e) {} setTimeout(loop, 2000) }
+refresh().then(() => { setTab(TAB); loadCfg() }); pollLog(); setTimeout(loop, 2000);
+</script>
+</body>
+</html>

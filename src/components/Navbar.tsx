@@ -60,6 +60,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/80 p-1.5">
+            {centers.length > 1 && (
+              <>
             <div className="flex items-center gap-2 px-2">
               <Building2 className="h-4 w-4 text-blue-400" />
               <div className="leading-tight">
@@ -87,6 +89,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
+              </>
+            )}
             <button
               type="button"
               onClick={onAddCenter}

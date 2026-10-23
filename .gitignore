@@ -8,3 +8,14 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# 어사이드: _ 로 시작하는 파일·폴더는 올리지 않는다 (_context_*, _DOCS, _panel_profile)
+_*
+!rpa/hrdnet/__init__.py
+*.xlsx
+*.xls
+*.pdf
+*.mp4
+*.pptx
+*.zip
+rpa/local.json

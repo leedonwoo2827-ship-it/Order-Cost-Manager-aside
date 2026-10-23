@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>비용신청 · 패널</title>
+<style>
+:root{--bg:#F6F1E8;--card:#FFFDF8;--ink:#1E293B;--body:#334155;--mute:#94A3B8;--line:#E7DFD0;--a:#1F4E79;--ok:#2E7D5B;--warn:#C77700;--bad:#E4572E}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--body);font:14px/1.5 "Pretendard","Malgun Gothic",sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px 14px 8px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;justify-content:space-between}
+.brand b{font-size:16px;color:var(--a)}
+button{font:inherit;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+button.pri{background:var(--a);border-color:var(--a);color:#fff;font-weight:700}
+button.hot{background:var(--bad);border-color:var(--bad);color:#fff;font-weight:700}
+button.big{font-size:16px;padding:12px 6px;flex:1 1 28%;min-width:0}
+html,body{overflow-x:hidden}
+.brand span{display:flex;gap:4px}
+main{padding:10px 14px 190px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0}
+.ask{border:2px solid var(--warn);background:#fffbeb}.ask.confirm{border-color:var(--bad);background:#fef2f2}
+.ask b{display:block;font-size:15px;margin-bottom:6px;color:var(--ink)}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--mute);font-size:12px}
+.bar{height:8px;background:#EEE7DA;border-radius:4px;overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--a)}
+.step{font-size:15px;color:var(--ink);font-weight:600}
+#log{position:fixed;left:0;right:0;bottom:0;height:170px;background:#1d2433;color:#e2e8f0;font:12px/1.5 Consolas,"Malgun Gothic",monospace;padding:8px 12px;overflow:auto;white-space:pre-wrap}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:4px;background:#94a3b8}.dot.on{background:#22c55e}.dot.off{background:#ef4444}.dot.busy{background:#f59e0b}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><b>비용신청 · 패널</b><span><button onclick="window.open('/', '_blank')">대시보드</button> <button onclick="post('/api/stop')">■ 멈춤</button></span></div>
+  <div class="muted" style="margin-top:6px"><span class="dot" id="hdot"></span><span id="htxt"></span> · <span class="dot" id="bdot"></span><span id="btxt"></span></div>
+</header>
+<main>
+  <div id="ask"></div>
+  <div id="now"></div>
+  <div class="card"><div class="row"><button onclick="run(['hrdnet-open'])">HRD-Net 왼쪽 배치</button><button onclick="run(['inspect'])">화면 진단</button></div>
+    <p class="muted" style="margin:6px 0 0">로그인(인증서)은 HRD-Net 에서 직접. 회차 고르기·미리 채워 보기·신청은 대시보드 「② 회차」에서.</p></div>
+</main>
+<div id="log"></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const post = async (u, b = {}) => { const r = await fetch(u, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(b)}); if (!r.ok) { let m = await r.text(); try { m = JSON.parse(m).detail } catch (e) {} alert(m) } };
+const run = args => post('/api/run', {args});
+let S = null, since = 0, lastAsk = '';
+const ans = a => post('/api/answer', {id: S.ask.id, answer: a}).then(tick);
+async function tick() {
+  try { S = await (await fetch('/api/state')).json() } catch (e) { return }
+  $('#hdot').className = 'dot ' + (S.hrdnet.length ? 'on' : 'off'); $('#htxt').textContent = S.hrdnet.length ? 'HRD-Net 창 있음' : 'HRD-Net 창 없음';
+  $('#bdot').className = 'dot ' + (S.busy ? 'busy' : 'on'); $('#btxt').textContent = S.busy ? S.label : '대기';
+  const a = S.ask;
+  if (a) {
+    const B = {ok: '<button class="pri big" onclick="ans(\'ok\')">다 했어요</button>', skip: '<button class="big" onclick="ans(\'skip\')">건너뛰기</button>',
+      stop: '<button class="big" onclick="ans(\'stop\')">멈춤</button>', '신청': '<button class="hot big" onclick="ans(\'신청\')">훈련비용 신청</button>',
+      next: '<button class="pri big" onclick="ans(\'next\')">다음 회차로</button>'};
+    const head = {human: '👉 이 단계를 해 주세요', confirm: '★ 최종 신청 — 화면을 확인하고 누르세요', next: '다음 회차로 넘어갈까요?'}[a.kind];
+    $('#ask').innerHTML = `<div class="card ask ${a.kind === 'confirm' ? 'confirm' : ''}"><b>${head}</b><div style="margin-bottom:10px">${esc(a.msg)}</div><div class="row">${a.options.map(o => B[o] || '').join('')}</div></div>`;
+    if (a.id !== lastAsk) { lastAsk = a.id; try { navigator.vibrate && navigator.vibrate(200) } catch (e) {} document.title = '❗ 답해 주세요 · 비용신청' }
+  } else { $('#ask').innerHTML = ''; document.title = '비용신청 · 패널' }
+  const n = S.now;
+  $('#now').innerHTML = n ? `<div class="card"><div class="muted">${esc(n.과정명)} ${esc(n.회차)}회차 · ${esc(n.모드)}</div><div class="bar"><i style="width:${Math.round(n.i / n.n * 100)}%"></i></div>
+    <div class="muted">${n.i} / ${n.n} 단계 · ${esc(n.id)}</div><div class="step">${esc(n.say)}</div></div>` : '';
+}
+async function pollLog() {
+  try { const r = await (await fetch('/api/log?since=' + since)).json(); if (r.lines.length) { const el = $('#log'); el.textContent += r.lines.join('\n') + '\n'; el.scrollTop = el.scrollHeight } since = r.next } catch (e) {}
+  setTimeout(pollLog, 1000);
+}
+tick(); setInterval(tick, 1000); pollLog();
+</script>
+</body>
+</html>

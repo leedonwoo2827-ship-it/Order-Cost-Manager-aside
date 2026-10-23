@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { ReceiptExportModal } from './ReceiptExportModal';
 import { groupReceiptRows, isReceiptEligible } from '../utils/receiptDocument';
+import { buildCostClaimPayload, isCostClaimTarget, roundKey } from '../utils/costClaim';
 
 interface DataSheetViewProps {
   data: IntegratedDataRow[];
@@ -54,6 +55,7 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
   const [sortField, setSortField] = useState<keyof IntegratedDataRow>('id');
   const [sortAsc, setSortAsc] = useState(true);
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [claimBusy, setClaimBusy] = useState(false);
   const [initialReceiptGroupKey, setInitialReceiptGroupKey] = useState<string | null>(null);
 
   const receiptGroups = useMemo(() => groupReceiptRows(data), [data]);
@@ -206,6 +208,54 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
       ...row,
       receiptIssued: !row.receiptIssued,
     });
+  };
+
+  // HRD-Net 비용신청 올리기: 증빙을 rpa 폴더에 내보내고 오른쪽 사이드 패널을 연다
+  const claimTargetCount = useMemo(() => data.filter(isCostClaimTarget).length, [data]);
+
+  const startCostClaim = async () => {
+    if (!window.rpa) {
+      onShowToast?.('설치형 프로그램(Electron)에서만 쓸 수 있습니다.', 'error');
+      return;
+    }
+    const payload = buildCostClaimPayload(data);
+    const rounds = new Set(payload.rows.map((r) => `${r.course}__${r.round}`)).size;
+    if (payload.rows.length === 0) {
+      onShowToast?.('수금이 확인되고 비용신청 전인 회차가 없습니다.', 'info');
+      return;
+    }
+    if (!window.confirm(`${rounds}개 회차(${payload.rows.length}행)를 HRD-Net 비용신청 대상으로 내보내고 사이드 패널을 엽니다.
+전자계산서 PDF는 rpa 증빙 폴더에 직접 넣어 주세요.`)) return;
+    setClaimBusy(true);
+    try {
+      const exported = await window.rpa.exportClaims(payload);
+      if (!exported.saved) {
+        onShowToast?.(exported.reason || '내보내기에 실패했습니다.', 'error');
+        return;
+      }
+      onShowToast?.(`내보냄: ${exported.rows}행 · 수납확인서 ${exported.receipts}건 (${exported.root})`, 'success');
+      const launched = await window.rpa.launch();
+      if (!launched.ok) onShowToast?.(launched.reason || '사이드 패널을 열지 못했습니다.', 'error');
+    } catch (error) {
+      onShowToast?.(`비용신청 연결 실패: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    } finally {
+      setClaimBusy(false);
+    }
+  };
+
+  // RPA가 만든 완료처리대상 → 비용신청여부 일괄 체크
+  const applyCompletedClaims = async () => {
+    if (!window.rpa) return;
+    const {items} = await window.rpa.completed();
+    const done = new Set(items.map((i) => roundKey(i.course, i.round)));
+    let changed = 0;
+    data.forEach((row) => {
+      if (!row.expenseApplied && done.has(roundKey(row.courseName, row.hrdRound))) {
+        onUpdateRow({...row, expenseApplied: true});
+        changed += 1;
+      }
+    });
+    onShowToast?.(changed ? `비용신청 완료 ${changed}행을 반영했습니다.` : '새로 반영할 완료 건이 없습니다.', changed ? 'success' : 'info');
   };
 
   const openReceiptManager = () => {
@@ -398,30 +448,6 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
 
         {/* Right action buttons */}
         <div className="flex items-center space-x-2">
-          {onConnectDirectory && (
-            <button
-              id="btn-connect-shared-datasheet"
-              onClick={onConnectDirectory}
-              className="flex items-center space-x-1.5 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition"
-              title="사내 공용폴더를 지정하거나 엑셀 원본들을 연결합니다."
-            >
-              <span>📁 공용폴더 연결</span>
-            </button>
-          )}
-
-          {onRefreshSharedFolder && (
-            <button
-              id="btn-refresh-shared-datasheet"
-              onClick={onRefreshSharedFolder}
-              disabled={isRefreshing}
-              className="flex items-center space-x-1.5 px-2.5 py-1 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition disabled:opacity-50"
-              title="사내 공용폴더의 최신 원본 엑셀 파일을 다시 읽어와 즉시 반영합니다."
-            >
-              <RefreshCw className={`w-3 h-3 text-blue-600 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span>{isRefreshing ? '동기화 중...' : '🔄 공용폴더 원본 새로고침'}</span>
-            </button>
-          )}
-
           {stats.unmappedCount > 0 && (
             <button
               id="btn-goto-mappings-alert"
@@ -444,6 +470,30 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
             <FileText className="w-3 h-3" />
             <span>수납확인서 ({receiptGroups.length})</span>
           </button>
+
+          {window.rpa && (
+            <>
+              <button
+                id="btn-start-cost-claim"
+                type="button"
+                onClick={startCostClaim}
+                disabled={claimBusy || claimTargetCount === 0}
+                className="flex items-center space-x-1.5 px-3 py-1 text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-2xs transition disabled:opacity-40 disabled:cursor-not-allowed"
+                title="수금 확인된 회차를 HRD-Net 비용신청으로 올립니다. 로그인과 최종 신청은 사람이 합니다."
+              >
+                <span>{claimBusy ? '여는 중...' : `HRD-Net 비용신청 올리기 (${claimTargetCount})`}</span>
+              </button>
+              <button
+                id="btn-apply-cost-claim-done"
+                type="button"
+                onClick={applyCompletedClaims}
+                className="px-2.5 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition"
+                title="RPA 결과의 완료처리 대상을 비용신청여부에 반영합니다."
+              >
+                결과 반영
+              </button>
+            </>
+          )}
 
           <button
             id="btn-export-excel-main"

@@ -1,0 +1,118 @@
+# HRD-Net 비용신청 순서 — PPT「HRD-net 비용신청 프로세스_화면캡쳐(1019)」23장을 옮긴 것
+#
+# action: focus | click | type | check | attach | wait | confirm | screenshot
+# target: 아래 순서로 찾는다. 하나도 못 찾으면 사람에게 해 달라고 안내하고 Enter 를 기다린다.
+#   uia:   {title, control_type, auto_id, found_index}   ← run.bat inspect 결과를 보고 채운다
+#   image: templates/xxx.png                            ← UIA 로 안 보이면 버튼을 캡처해 넣는다
+#   say:   사람에게 보여 줄 설명 (안내용, 필수)
+# 값 자리표시: {과정명} {회차} {검색시작} {검색종료} {사업장명} {사업장관리번호} {전자계산서} {수납확인서}
+# ★ selector(uia/image) 는 모두 TODO — 담당자 PC 진단 후 채운다. 비어 있으면 그 단계는 사람 안내로 돈다.
+
+window: ".*HRD.*행정지원.*"     # 창 제목 정규식 (inspect 로 실제 제목 확인)
+
+steps:
+  - id: "1"
+    say: "공통업무(나의 할일) 화면인지 확인 — 로그인은 사람이 미리 한다"
+    action: focus
+
+  - id: "2"
+    say: "상단 메뉴 [사업주훈련] → 왼쪽 [비용관리] → [비용신청관리(위탁)]"
+    action: click
+    target: {uia: {}, image: ""}
+
+  - id: "2-a"
+    say: "훈련과정/회차 칸에 과정명 입력"
+    action: type
+    text: "{과정명}"
+    target: {uia: {}, image: ""}
+
+  - id: "2-b"
+    say: "검색기간 입력 ({검색시작} ~ {검색종료}) → [검색]"
+    action: type
+    text: "{검색시작}"
+    then_text: "{검색종료}"
+    target: {uia: {}, image: ""}
+
+  - id: "2-c"
+    say: "[검색] 클릭"
+    action: click
+    target: {uia: {title: "검색", control_type: "Button"}, image: ""}
+
+  - id: "3"
+    say: "목록에서 {회차}회차 행의 [신청] 클릭 → 비용신청관리 상세(위탁)"
+    action: click
+    target: {uia: {}, image: ""}
+
+  - id: "4"
+    say: "참여업체별 비용신청 현황 → [비용등록] 클릭 (참여업체 목록 팝업)"
+    action: click
+    target: {uia: {title: "비용등록", control_type: "Button"}, image: ""}
+
+  - id: "4-x"
+    for_each: 사업장
+    steps:
+      - id: "4-1"
+        say: "사업장목록에서 {사업장명}({사업장관리번호}) 체크"
+        action: check
+        target: {uia: {}, image: ""}
+      - id: "4-2"
+        say: "비용신청대상 사업장 체크"
+        action: check
+        target: {uia: {}, image: ""}
+      - id: "4-3"
+        say: "[비용등록] 버튼 클릭"
+        action: click
+        target: {uia: {title: "비용등록", control_type: "Button"}, image: ""}
+      - id: "4-4"
+        say: "훈련인원 현황 체크"
+        action: check
+        target: {uia: {}, image: ""}
+      - id: "4-5"
+        say: "[산출액→신청액] 클릭"
+        action: click
+        target: {uia: {}, image: ""}
+      - id: "4-6"
+        say: "[저장] 클릭"
+        action: click
+        target: {uia: {title: "저장", control_type: "Button"}, image: ""}
+      - id: "4-7"
+        say: "[닫기] 클릭 → 비용신청관리 상세(위탁)로 돌아옴"
+        action: click
+        target: {uia: {title: "닫기", control_type: "Button"}, image: ""}
+
+  - id: "5-1"
+    say: "첨부파일 목록 — 훈련비 증명서류 [첨부] → 전자계산서"
+    action: attach
+    file: "{전자계산서}"
+    target: {uia: {}, image: ""}
+
+  - id: "5-2"
+    say: "첨부파일 목록 — 숙박비 관련 증명서류 [첨부] → 수납확인서"
+    action: attach
+    file: "{수납확인서}"
+    optional: true          # 숙박이 없는 회차는 건너뛴다
+    target: {uia: {}, image: ""}
+
+  - id: "6"
+    say: "[저장] 클릭"
+    action: click
+    target: {uia: {title: "저장", control_type: "Button"}, image: ""}
+
+  - id: "7"
+    say: "[고용보험확인] 클릭 — 보험료 체납 경고가 뜨면 오류로 기록"
+    action: click
+    target: {uia: {title: "고용보험확인", control_type: "Button"}, image: ""}
+
+  - id: "7-s"
+    say: "신청 직전 화면 저장"
+    action: screenshot
+
+  - id: "8"
+    say: "[훈련비용 신청] 클릭 — 최종 신청"
+    action: click
+    confirm: true           # 사람이 Enter 를 눌러야 진행
+    target: {uia: {title: "훈련비용 신청", control_type: "Button"}, image: ""}
+
+  - id: "8-s"
+    say: "신청 후 화면 저장"
+    action: screenshot
