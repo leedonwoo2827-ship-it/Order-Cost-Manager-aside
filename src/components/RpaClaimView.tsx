@@ -1,10 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
+interface RpaBusiness {
+  사업장명: string;
+  사업장관리번호: string;
+  훈련인원: number;
+  신청금액: number;
+  전자계산서: string;
+  수납확인서: string;
+}
+
 interface RpaRound {
   folder: string;
   과정명: string;
   회차: string;
   사업장: number;
+  사업장내역?: RpaBusiness[];
   첨부: string[];
   정리: string;
   올리기: string;
@@ -56,6 +66,7 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
   const [backups, setBackups] = useState<BackupList | null>(null);
   const [withTest, setWithTest] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     if (!window.rpaApi) return;
@@ -127,6 +138,16 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
       else next.add(folder);
       return next;
     });
+
+  const toggleDetail = (folder: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(folder)) next.delete(folder);
+      else next.add(folder);
+      return next;
+    });
+
+  const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('ko-KR')}원`;
 
   const allOn = ready.length > 0 && ready.every((r) => picked.has(r.folder));
 
@@ -204,18 +225,74 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
             )}
             {rounds.map((r) => {
               const ok = r.정리 === '준비완료';
+              const isExpanded = expanded.has(r.folder);
+              const businesses = r.사업장내역 ?? [];
               return (
-                <tr key={r.folder} className="border-b border-slate-100">
-                  <td className="py-1.5">
-                    <input type="checkbox" disabled={!ok} checked={picked.has(r.folder)} onChange={() => toggle(r.folder)} />
-                  </td>
-                  <td className="max-w-[18rem] truncate py-1.5" title={r.과정명}>{r.과정명}</td>
-                  <td className="py-1.5">{r.회차}</td>
-                  <td className="py-1.5">{r.사업장}곳</td>
-                  <td className="py-1.5">{r.첨부.join(' · ') || '-'}</td>
-                  <td className={`py-1.5 font-semibold ${ok ? 'text-emerald-700' : 'text-rose-600'}`}>{r.정리}</td>
-                  <td className="py-1.5" title={r.오류}>{r.올리기}</td>
-                </tr>
+                <React.Fragment key={r.folder}>
+                  <tr className={`border-b border-slate-100 ${isExpanded ? 'bg-indigo-50/40' : ''}`}>
+                    <td className="py-1.5">
+                      <input type="checkbox" disabled={!ok} checked={picked.has(r.folder)} onChange={() => toggle(r.folder)} />
+                    </td>
+                    <td className="max-w-[18rem] truncate py-1.5" title={r.과정명}>{r.과정명}</td>
+                    <td className="py-1.5">{r.회차}</td>
+                    <td className="py-1.5">
+                      <button type="button" onClick={() => toggleDetail(r.folder)}
+                        className="rounded px-1.5 py-0.5 font-semibold text-indigo-700 hover:bg-indigo-100"
+                        aria-expanded={isExpanded} title="사업장 세부 내역 보기">
+                        {isExpanded ? '▾' : '▸'} {r.사업장}곳
+                      </button>
+                    </td>
+                    <td className="py-1.5">{r.첨부.join(' · ') || '-'}</td>
+                    <td className={`py-1.5 font-semibold ${ok ? 'text-emerald-700' : 'text-rose-600'}`}>{r.정리}</td>
+                    <td className="py-1.5" title={r.오류}>{r.올리기}</td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="border-b border-indigo-100 bg-indigo-50/30">
+                      <td colSpan={7} className="px-8 py-3">
+                        {businesses.length === 0 ? (
+                          <p className="text-slate-400">사업장 상세 데이터가 없습니다. RPA 엔진을 다시 실행해 주세요.</p>
+                        ) : (
+                          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                            <table className="w-full min-w-[760px] text-left text-[11px]">
+                              <thead className="bg-slate-50 text-slate-500">
+                                <tr>
+                                  <th className="px-3 py-2">번호</th>
+                                  <th className="px-3 py-2">업체명</th>
+                                  <th className="px-3 py-2">사업장관리번호</th>
+                                  <th className="px-3 py-2 text-right">훈련인원</th>
+                                  <th className="px-3 py-2 text-right">신청금액</th>
+                                  <th className="px-3 py-2">전자계산서</th>
+                                  <th className="px-3 py-2">수납확인서</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {businesses.map((business, index) => (
+                                  <tr key={`${business.사업장관리번호}-${business.사업장명}-${index}`} className="border-t border-slate-100">
+                                    <td className="px-3 py-2 text-slate-400">{index + 1}</td>
+                                    <td className="px-3 py-2 font-semibold text-slate-800">{business.사업장명 || '-'}</td>
+                                    <td className="px-3 py-2 font-mono text-slate-600">{business.사업장관리번호 || '-'}</td>
+                                    <td className="px-3 py-2 text-right">{Number(business.훈련인원 || 0).toLocaleString('ko-KR')}명</td>
+                                    <td className="px-3 py-2 text-right font-semibold">{formatMoney(business.신청금액)}</td>
+                                    <td className="max-w-[13rem] truncate px-3 py-2" title={business.전자계산서}>
+                                      <span className={business.전자계산서 ? 'text-emerald-700' : 'text-rose-600'}>
+                                        {business.전자계산서 ? `✓ ${business.전자계산서}` : '누락'}
+                                      </span>
+                                    </td>
+                                    <td className="max-w-[13rem] truncate px-3 py-2" title={business.수납확인서}>
+                                      <span className={business.수납확인서 ? 'text-emerald-700' : 'text-rose-600'}>
+                                        {business.수납확인서 ? `✓ ${business.수납확인서}` : '누락'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody>

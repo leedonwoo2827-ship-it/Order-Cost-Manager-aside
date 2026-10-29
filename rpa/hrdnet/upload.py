@@ -33,27 +33,57 @@ class Stop(Exception):
     pass
 
 
+class Ineligible(Stop):
+    pass
+
+
 def _fmt(s: str, vals: dict) -> str:
     return re.sub(r"\{([^{}]+)\}", lambda m: str(vals.get(m.group(1), m.group(0))), s or "")
 
 
 def _flatten(steps: list, manifest: dict) -> list[tuple[dict, dict]]:
-    """for_each: 사업장 블록을 사업장 수만큼 펼친다 → (단계, 이 단계에서 쓸 값)."""
+    """for_each 블록을 manifest의 해당 목록만큼 펼친다 → (단계, 이 단계에서 쓸 값)."""
     base = {k: manifest.get(k, "") for k in ("과정명", "회차", "검색시작", "검색종료")}
     base.update({k: manifest.get("첨부", {}).get(k, "") for k in config.EVIDENCE})
     out = []
     for s in steps:
-        if s.get("for_each") == "사업장":
-            for i, biz in enumerate(manifest.get("사업장", []), start=1):
+        collection = s.get("for_each")
+        if collection:
+            for i, item in enumerate(manifest.get(collection, []), start=1):
                 for sub in s["steps"]:
-                    out.append((dict(sub, id=f"{sub['id']}#{i}"), dict(base, **biz)))
+                    out.append((dict(sub, id=f"{sub['id']}#{i}"), dict(base, **item)))
         else:
             out.append((s, base))
     return out
 
 
+def _resolve_inbox_evidence(manifest: dict, dirs: dict[str, Path]) -> list[str]:
+    """inbox/증빙의 업체별 원본 PDF를 직접 연결한다. outbox의 복사본은 사용하지 않는다."""
+    from .organize import _find_evidence
+
+    pdfs = list(dirs["증빙"].rglob("*.pdf"))
+    missing_evidence = []
+    attachments = manifest.setdefault("첨부", {})
+    for kind in config.EVIDENCE:
+        items = []
+        for business in manifest.get("사업장", []):
+            company = str(business.get("사업장명", ""))
+            src = _find_evidence(
+                kind, str(manifest.get("회차", "")), str(manifest.get("과정명", "")), "",
+                pdfs, dirs["inbox"], [company],
+            )
+            if src:
+                items.append({"사업장명": company, "증빙종류": kind, "파일": str(src)})
+            else:
+                missing_evidence.append(f"{company or '(사업장명 없음)'} - {kind}")
+        manifest[f"{kind}목록"] = items
+        # 구버전 화면/로그 호환용. 실제 첨부 단계는 위 목록을 사용한다.
+        attachments[kind] = items[0]["파일"] if len(items) == 1 else ""
+    return missing_evidence
+
+
 # ── 사람에게 묻기 (콘솔 / 대시보드) ────────────────────────────────────
-def ask(kind: str, msg: str, options: list[str]) -> str:
+def ask(kind: str, msg: str, options: list[str], copy_values: list[dict[str, str]] | None = None) -> str:
     """kind: human(사람이 해 줄 단계) / confirm(최종 신청) / next(다음 회차로?). 답은 options 중 하나."""
     if os.environ.get("HRD_WEB") != "1":
         hint = {"human": "다 했으면 Enter (s=건너뛰기, q=중단): ", "confirm": "진행하려면 '신청' 입력 (그 외 = 중단): ",
@@ -69,8 +99,10 @@ def ask(kind: str, msg: str, options: list[str]) -> str:
     qid = uuid.uuid4().hex[:8]
     ans = d["logs"] / "_answer.json"
     ans.unlink(missing_ok=True)
-    (d["logs"] / "_ask.json").write_text(json.dumps({"id": qid, "kind": kind, "msg": msg, "options": options},
-                                                    ensure_ascii=False), encoding="utf-8")
+    payload = {"id": qid, "kind": kind, "msg": msg, "options": options}
+    if copy_values:
+        payload["copy"] = copy_values
+    (d["logs"] / "_ask.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     print(f"  ? {msg}  → 대시보드/사이드 패널에서 답해 주세요", flush=True)
     try:
         while True:
@@ -129,13 +161,24 @@ class Screen:
         if img:
             p = config.ROOT / img
             if p.exists():
-                import pyautogui
                 try:
-                    box = pyautogui.locateCenterOnScreen(str(p), confidence=self.cfg["image_confidence"])
+                    import cv2
+                    import numpy as np
+
+                    window_image = np.array(self.win.capture_as_image())
+                    screen = cv2.cvtColor(window_image, cv2.COLOR_RGB2GRAY)
+                    template = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+                    if template is None or template.shape[0] > screen.shape[0] or template.shape[1] > screen.shape[1]:
+                        return None
+                    score_map = cv2.matchTemplate(screen, template, cv2.TM_CCOEFF_NORMED)
+                    _min_score, max_score, _min_at, max_at = cv2.minMaxLoc(score_map)
+                    if max_score >= float(self.cfg["image_confidence"]):
+                        rect = self.win.rectangle()
+                        x = rect.left + max_at[0] + template.shape[1] // 2
+                        y = rect.top + max_at[1] + template.shape[0] // 2
+                        return ("image", (x, y))
                 except Exception:  # noqa: BLE001 — 못 찾으면 예외를 던지는 버전이 있다
-                    box = None
-                if box:
-                    return ("image", (box.x, box.y))
+                    pass
         return None
 
     def click(self, hit):
@@ -183,14 +226,21 @@ class Screen:
     def shot(self, path: Path):
         if self.simulate:
             return
+        if self.win:
+            try:
+                self.win.capture_as_image().save(path)
+                return
+            except Exception:  # noqa: BLE001 — 일부 화면은 창 캡처를 막는다
+                pass
         from PIL import ImageGrab
-        ImageGrab.grab().save(path)
+        ImageGrab.grab(all_screens=True).save(path)
 
 
 def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = False) -> dict:
     cfg = config.load()
     d = config.dirs(cfg)
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    missing_evidence = _resolve_inbox_evidence(manifest, d)
     spec = yaml.safe_load((config.ROOT / cfg["steps"]).read_text(encoding="utf-8"))
     mode = "simulate" if simulate else "dry-run" if dry else "미리채움" if fill else "실행"
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -208,6 +258,8 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
             f.write(json.dumps(dict(rec, at=datetime.now().strftime("%H:%M:%S")), ensure_ascii=False) + "\n")
 
     try:
+        if missing_evidence:
+            raise Stop("필수 증빙 없음: " + ", ".join(missing_evidence))
         scr = Screen(spec.get("window", ".*HRD.*"), simulate, cfg)
         for i, (step, vals) in enumerate(plan, start=1):
             sid, act = step["id"], step.get("action", "click")
@@ -247,6 +299,10 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
                 rec["found"] = hit[0] if hit else None
                 if not hit:
                     summary["못찾음"].append(sid)
+                    if not (simulate or dry):
+                        missing_shot = d["shots"] / f"{name}_{sid}_찾기실패.png"
+                        scr.shot(missing_shot)
+                        rec["file"] = missing_shot.name
                 if simulate or dry:
                     rec["result"] = "확인만"
                     print(f"  {sid:6} {'찾음 ' + hit[0] if hit else '못찾음':10} {say}", flush=True)
@@ -274,11 +330,42 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
                     rec["result"] = "자동"
                 else:
                     extra = ""
+                    copy_values = []
                     if act == "type":
-                        extra = f"  입력값: {_fmt(step.get('text', ''), vals)} {_fmt(step.get('then_text', ''), vals)}"
+                        text_value = _fmt(step.get("text", ""), vals)
+                        then_value = _fmt(step.get("then_text", ""), vals)
+                        extra = f"  입력값: {text_value} {then_value}"
+                        if sid == "2-a":
+                            copy_values.append({"label": "과정명", "value": text_value})
+                        elif sid == "2-b":
+                            copy_values.append({"label": "검색 시작일", "value": text_value})
+                            if then_value:
+                                copy_values.append({"label": "검색 종료일", "value": then_value})
+                        else:
+                            copy_values.append({"label": "입력값", "value": text_value})
+                            if then_value:
+                                copy_values.append({"label": "다음 입력값", "value": then_value})
                     if act == "attach":
-                        extra = f"  파일: {_fmt(step['file'], vals)}"
-                    a = ask("human", f"[{sid}] {say}{extra}", ["ok", "skip", "stop"])
+                        file_value = _fmt(step["file"], vals)
+                        extra = f"  파일: {file_value}"
+                        copy_values.append({"label": "첨부파일 경로", "value": file_value})
+                    if sid.startswith("4-1"):
+                        copy_values.append({"label": "사업장명", "value": str(vals.get("사업장명", ""))})
+                        if vals.get("사업장관리번호"):
+                            copy_values.append({"label": "사업장관리번호", "value": str(vals["사업장관리번호"])})
+                    from .learn_recorder import StepRecorder
+                    recorder = StepRecorder(scr.win.handle if scr.win else 0, sid, say)
+                    recorder.start()
+                    if step.get("eligibility_check"):
+                        options = ["ok", "ineligible", "stop"]
+                    else:
+                        options = ["ok", "stop"] if step.get("required") else ["ok", "skip", "stop"]
+                    a = ask("human", f"[{sid}] {say}{extra}", options, copy_values)
+                    learned_clicks = recorder.stop(save=a == "ok")
+                    if learned_clicks:
+                        rec["learned_clicks"] = learned_clicks
+                    if a == "ineligible":
+                        raise Ineligible(f"{sid}: 훈련생 오류 또는 고용보험 체납으로 신청 불가")
                     if a == "stop":
                         raise Stop(f"{sid}에서 사람이 중단")
                     summary["사람"] += 1
@@ -294,6 +381,9 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
             summary["완료"] += 1
         if not summary["상태"]:
             summary["상태"] = {"simulate": "모의완료", "dry-run": "점검완료"}.get(mode, "성공")
+    except Ineligible as e:
+        summary["상태"], summary["오류"] = "신청불가", str(e)
+        print("  신청불가:", e, flush=True)
     except Stop as e:
         summary["상태"], summary["오류"] = ("실패" if "알림" in str(e) else "중단"), str(e)
         print("  멈춤:", e, flush=True)

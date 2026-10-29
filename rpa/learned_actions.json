@@ -1,0 +1,324 @@
+{
+  "2": {
+    "description": "상단 메뉴 [사업주훈련] → 왼쪽 [비용관리] → [비용신청관리(위탁)]",
+    "recorded_at": "2026-10-27 16:29:46",
+    "events": [
+      {
+        "x_ratio": 0.735043,
+        "y_ratio": 0.050584,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2_1.png"
+      },
+      {
+        "x_ratio": 0.054843,
+        "y_ratio": 0.26751,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2_2.png"
+      },
+      {
+        "x_ratio": 0.073362,
+        "y_ratio": 0.309339,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2_3.png"
+      },
+      {
+        "x_ratio": 0.494302,
+        "y_ratio": 0.888132,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2_4.png"
+      },
+      {
+        "x_ratio": 0.871795,
+        "y_ratio": 0.196498,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2_5.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "2-a": {
+    "description": "훈련과정/회차 칸에 과정명 입력",
+    "recorded_at": "2026-10-27 16:10:42",
+    "events": [
+      {
+        "x_ratio": 0.383903,
+        "y_ratio": 0.169261,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2-a_1.png"
+      },
+      {
+        "x_ratio": 0.865385,
+        "y_ratio": 0.252918,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2-a_2.png"
+      },
+      {
+        "x_ratio": 0.329772,
+        "y_ratio": 0.164397,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2-a_3.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "2-b": {
+    "description": "검색기간 입력 (2026-04-29 ~ 2026-05-28) → [검색]",
+    "recorded_at": "2026-10-27 16:30:09",
+    "events": [
+      {
+        "x_ratio": 0.408832,
+        "y_ratio": 0.219844,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2-b_1.png"
+      },
+      {
+        "x_ratio": 0.482906,
+        "y_ratio": 0.220817,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2-b_2.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "2-c": {
+    "description": "[검색] 클릭",
+    "recorded_at": "2026-10-27 16:11:07",
+    "events": [
+      {
+        "x_ratio": 0.958689,
+        "y_ratio": 0.210117,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/2-c_1.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "3": {
+    "description": "목록에서 21회차 행의 [신청] 클릭 → 비용신청관리 상세(위탁)",
+    "recorded_at": "2026-10-27 16:30:49",
+    "events": [
+      {
+        "x_ratio": 0.94943,
+        "y_ratio": 0.444553,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/3_1.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "4": {
+    "description": "참여업체별 비용신청 현황 → [비용등록] 클릭 (참여업체 목록 팝업)",
+    "recorded_at": "2026-10-27 16:11:25",
+    "events": [
+      {
+        "x_ratio": 0.948006,
+        "y_ratio": 0.572957,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/4_1.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "4-1": {
+    "description": "사업장목록에 유남석유(주)(50481259400)가 있고 체크박스가 활성화됐는지 확인한 뒤 체크",
+    "recorded_at": "2026-10-27 16:31:02",
+    "events": [
+      {
+        "x_ratio": 0.324074,
+        "y_ratio": 0.793774,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/4-1_1.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "4-2": {
+    "description": "비용신청대상 사업장 체크",
+    "recorded_at": "2026-10-27 16:11:35",
+    "events": [
+      {
+        "x_ratio": 0.343305,
+        "y_ratio": 0.279183,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/4-2_1.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "4-4": {
+    "description": "훈련인원 현황 체크",
+    "recorded_at": "2026-10-27 16:11:57",
+    "events": [
+      {
+        "x_ratio": 0.245726,
+        "y_ratio": 0.69358,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/4-4_1.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "4-5": {
+    "description": "[산출액→신청액] 클릭",
+    "recorded_at": "2026-10-27 16:12:09",
+    "events": [
+      {
+        "x_ratio": 0.227208,
+        "y_ratio": 0.871595,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/4-5_1.png"
+      },
+      {
+        "x_ratio": 0.762821,
+        "y_ratio": 0.764591,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/4-5_2.png"
+      },
+      {
+        "x_ratio": 0.897436,
+        "y_ratio": 0.544747,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/4-5_3.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "4-6": {
+    "description": "[저장] 클릭",
+    "recorded_at": "2026-10-27 16:12:21",
+    "events": [
+      {
+        "x_ratio": 0.977208,
+        "y_ratio": 0.124514,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/4-6_1.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "5-1": {
+    "description": "첨부파일 목록 — 훈련비 증명서류 [첨부] → (주)포커스타임 전자계산서",
+    "recorded_at": "2026-10-27 16:12:39",
+    "events": [
+      {
+        "x_ratio": 0.913818,
+        "y_ratio": 0.84144,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/5-1_1.png"
+      },
+      {
+        "x_ratio": 0.346866,
+        "y_ratio": 0.939689,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/5-1_2.png"
+      },
+      {
+        "x_ratio": 0.559829,
+        "y_ratio": 0.969844,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/5-1_3.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "5-2": {
+    "description": "첨부파일 목록 — 숙박비 관련 증명서류 [첨부] → (주)포커스타임 수납확인서",
+    "recorded_at": "2026-10-27 16:12:48",
+    "events": [
+      {
+        "x_ratio": 0.920228,
+        "y_ratio": 0.86284,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/5-2_1.png"
+      },
+      {
+        "x_ratio": 0.353276,
+        "y_ratio": 0.93677,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/5-2_2.png"
+      },
+      {
+        "x_ratio": 0.553419,
+        "y_ratio": 0.969844,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/5-2_3.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "6": {
+    "description": "[저장] 클릭",
+    "recorded_at": "2026-10-27 16:12:55",
+    "events": [
+      {
+        "x_ratio": 0.730057,
+        "y_ratio": 0.120623,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/6_1.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "7": {
+    "description": "[고용보험확인] 클릭 — 보험료 체납 경고가 뜨면 오류로 기록",
+    "recorded_at": "2026-10-27 16:13:03",
+    "events": [
+      {
+        "x_ratio": 0.580484,
+        "y_ratio": 0.569066,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/7_1.png"
+      },
+      {
+        "x_ratio": 0.77849,
+        "y_ratio": 0.128405,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/7_2.png"
+      }
+    ],
+    "reviewed": false
+  },
+  "4-3": {
+    "description": "[비용등록] 버튼 클릭",
+    "recorded_at": "2026-10-27 16:31:28",
+    "events": [
+      {
+        "x_ratio": 0.733618,
+        "y_ratio": 0.224708,
+        "window_width": 1404,
+        "window_height": 1028,
+        "template": "templates/learned/4-3_1.png"
+      }
+    ],
+    "reviewed": false
+  }
+}

@@ -1,5 +1,6 @@
 node_modules/
 .tools/
+.codex-preview-extension/
 build/
 dist/
 release/
@@ -9,9 +10,11 @@ coverage/
 .env*
 !.env.example
 
-# 어사이드: _ 로 시작하는 파일·폴더는 올리지 않는다 (_context_*, _DOCS, _panel_profile)
+# 어사이드 작업 파일은 제외하되 Python 패키지 실행 파일은 포함한다.
 _*
 !rpa/hrdnet/__init__.py
+!rpa/hrdnet/__main__.py
+!rpa/hrdnet/web/__init__.py
 *.xlsx
 *.xls
 *.pdf

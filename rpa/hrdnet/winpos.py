@@ -86,7 +86,7 @@ def open_panel(port: int) -> bool:
     except Exception:  # noqa: BLE001
         k = 1.0
     prof = config.dirs()["root"] / "_panel_profile"
-    subprocess.Popen([exe, f"--app=http://127.0.0.1:{port}/panel", f"--user-data-dir={prof}",
+    subprocess.Popen([exe, f"--app=http://localhost:{port}/panel", f"--user-data-dir={prof}",
                       "--no-first-run", "--no-default-browser-check",
                       f"--window-size={int(pw / k)},{int(h / k)}", f"--window-position={int((w - pw) / k)},0"],
                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

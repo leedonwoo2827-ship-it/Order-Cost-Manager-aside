@@ -6,6 +6,8 @@ UIA 로 버튼·칸의 이름이 보이면 steps.yaml 에 uia target 을 채우�
 """
 from __future__ import annotations
 
+import re
+from collections import Counter
 from datetime import datetime
 
 from . import config
@@ -19,17 +21,22 @@ def run() -> None:
     except ImportError:
         print("pywinauto 가 없습니다 — setup.bat 을 먼저 실행하세요")
         return
+    import yaml
+
     d = config.dirs()
     out = d["logs"] / f"inspect_{datetime.now():%Y%m%d_%H%M%S}.txt"
     lines = []
-    wins = [w for w in Desktop(backend="uia").windows() if "HRD" in (w.window_text() or "").upper()]
+    spec = yaml.safe_load((config.ROOT / config.load()["steps"]).read_text(encoding="utf-8")) or {}
+    pattern = spec.get("window", ".*(?:HRD|Edubion).*")
+    wins = [w for w in Desktop(backend="uia").windows() if re.search(pattern, w.window_text() or "", re.I)]
     if not wins:
-        print("제목에 HRD 가 들어간 창이 없습니다. HRD-Net 에 로그인한 뒤 다시 실행하세요.")
+        print(f"설정한 창 제목 패턴과 맞는 창이 없습니다: {pattern!r}")
         print("지금 열린 창:", [w.window_text() for w in Desktop(backend="uia").windows() if w.window_text()][:20])
         return
     for w in wins:
         title = w.window_text()
-        lines.append(f"### 창: {title!r}  class={w.class_name()!r}  pid={w.process_id()}")
+        pid = w.process_id()
+        lines.append(f"### UIA 창: {title!r}  class={w.class_name()!r}  pid={pid}")
         found, named, total = {}, 0, 0
         for c in w.descendants():
             total += 1
@@ -53,5 +60,57 @@ def run() -> None:
                    "→ UIA 로는 잘 안 보입니다: 버튼 이미지를 templates/ 에 넣고 image target 을 쓰세요")
         print(verdict)
         lines.insert(3, verdict)
+
+        # 대량 자동화 판단용: 같은 프로세스의 Win32 클래스 트리도 조사한다.
+        win32_wins = [x for x in Desktop(backend="win32").windows()
+                      if x.process_id() == pid and re.search(pattern, x.window_text() or title, re.I)]
+        if not win32_wins:
+            win32_wins = [x for x in Desktop(backend="win32").windows() if x.process_id() == pid]
+        for native in win32_wins:
+            controls = [native, *native.descendants()]
+            classes = Counter((c.class_name() or "(없음)") for c in controls)
+            lines.append("")
+            lines.append(f"### Win32 창: {native.window_text()!r} class={native.class_name()!r} pid={pid}")
+            lines.append("클래스 집계: " + ", ".join(f"{k}={v}" for k, v in classes.most_common()))
+            embedded = [name for name in classes
+                        if any(word.lower() in name.lower() for word in
+                               ("Internet Explorer_Server", "Chrome_RenderWidgetHost", "WebView", "CefBrowser"))]
+            lines.append("내장 웹 화면: " + (", ".join(embedded) if embedded else "발견 안 됨"))
+            for c in controls[:3000]:
+                try:
+                    text = (c.window_text() or "").strip().replace("\r", " ").replace("\n", " ")
+                    rect = c.rectangle()
+                    lines.append(
+                        f"{c.class_name()!r:34} text={text[:55]!r:59} "
+                        f"rect=({rect.left},{rect.top},{rect.right},{rect.bottom})"
+                    )
+                except Exception:  # noqa: BLE001 — 일부 네이티브 컨트롤은 조회 중 사라질 수 있다
+                    continue
+            print("Win32 클래스:", ", ".join(f"{k}={v}" for k, v in classes.most_common(12)))
+            print("내장 웹 화면:", ", ".join(embedded) if embedded else "발견 안 됨")
+
+    # Internet Explorer_Server가 있으면 MSHTML DOM을 직접 읽을 수 있는지 확인한다.
+    try:
+        from .ie_dom import describe
+
+        doms = describe(pattern)
+        lines.append("")
+        lines.append(f"### MSHTML DOM 문서: {len(doms)}개")
+        print(f"MSHTML DOM 문서: {len(doms)}개")
+        for i, dom in enumerate(doms, start=1):
+            lines.append(
+                f"DOM {i}: title={dom.get('title', '')!r} url={dom.get('url', '')!r} "
+                f"조작요소={len(dom.get('elements', []))} error={dom.get('error', '')!r}"
+            )
+            print(f"  DOM {i}: 조작요소 {len(dom.get('elements', []))}개  title={dom.get('title', '')!r}")
+            for el in dom.get("elements", []):
+                lines.append(
+                    f"  [{el['index']}] {el['tag']}/{el['type']} id={el['id']!r} "
+                    f"name={el['name']!r} text={el['text']!r}"
+                )
+    except Exception as exc:  # noqa: BLE001
+        lines.append("")
+        lines.append(f"### MSHTML DOM 접근 실패: {type(exc).__name__}: {exc}")
+        print(f"MSHTML DOM 접근 실패: {type(exc).__name__}: {exc}")
     out.write_text("\n".join(lines), encoding="utf-8")
     print("자세한 목록:", out)

@@ -134,14 +134,50 @@ def _read(p: Path, default=None):
 
 
 def _rounds(d) -> list[dict]:
+    from ..organize import _company_key
+
     out = []
     for m in sorted(d["outbox"].glob("*/manifest.json")):
         j = _read(m)
         if not j:
             continue
         up = j.get("올리기") or {}
+        invoices = {str(item.get("사업장명", "")).strip(): item.get("파일", "")
+                    for item in (j.get("전자계산서목록") or []) if isinstance(item, dict)}
+        receipts = {str(item.get("사업장명", "")).strip(): item.get("파일", "")
+                    for item in (j.get("수납확인서목록") or []) if isinstance(item, dict)}
+        # 구버전 manifest에는 회차 전체 대표 파일만 들어 있거나 목록이 일부만 저장되어 있다.
+        # 상세 표는 실제 회차 증빙 폴더도 확인해 업체별 파일을 빠짐없이 보여 준다.
+        evidence_dir = d["증빙"] / m.parent.name
+        evidence_pdfs = list(evidence_dir.glob("*.pdf")) if evidence_dir.exists() else []
+
+        def evidence_file(kind: str, company: str, saved: dict[str, str]) -> str:
+            stored = saved.get(company, "")
+            if stored and Path(stored).exists():
+                return Path(stored).name
+            company_key = _company_key(company)
+            words = config.EVIDENCE.get(kind, [kind])
+            for pdf in evidence_pdfs:
+                if any(word in pdf.name for word in words) and company_key and company_key in _company_key(pdf.stem):
+                    return pdf.name
+            return ""
+
+        businesses = []
+        for item in (j.get("사업장") or []):
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("사업장명", "")).strip()
+            businesses.append({
+                "사업장명": name,
+                "사업장관리번호": str(item.get("사업장관리번호", "")).strip(),
+                "훈련인원": item.get("훈련인원", 0),
+                "신청금액": item.get("신청금액", 0),
+                "전자계산서": evidence_file("전자계산서", name, invoices),
+                "수납확인서": evidence_file("수납확인서", name, receipts),
+            })
         out.append({"folder": m.parent.name, "과정명": j.get("과정명"), "회차": j.get("회차"),
                     "사업장": len(j.get("사업장", [])), "첨부": list(j.get("첨부", {})),
+                    "사업장내역": businesses,
                     "신청금액": j.get("신청금액", 0), "훈련인원": j.get("훈련인원", 0), "정리": j.get("상태"),
                     "정리일시": j.get("정리일시", ""), "올리기": up.get("상태") or "미실행", "모드": up.get("모드", ""),
                     "끝": up.get("끝", ""), "오류": up.get("오류", "")})
@@ -375,8 +411,8 @@ def serve() -> None:
     import uvicorn
     global UI_PORT
     UI_PORT = int(config.load()["port"])
-    host = "0.0.0.0" if public() else "127.0.0.1"
-    url = f"http://127.0.0.1:{UI_PORT}/"
+    host = "0.0.0.0" if public() else "localhost"
+    url = f"http://localhost:{UI_PORT}/"
     print(f"비용신청 공방 → {url}  (이 창을 닫으면 꺼져요 · 외부 읽기 전용: {'켜짐' if public() else '꺼짐'})", flush=True)
     if public():
         for ip in _lan_ips():

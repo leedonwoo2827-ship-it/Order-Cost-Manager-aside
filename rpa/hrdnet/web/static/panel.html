@@ -21,6 +21,11 @@ main{padding:10px 14px calc(var(--logh,170px) + 20px)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0}
 .ask{border:2px solid var(--warn);background:#fffbeb}.ask.confirm{border-color:var(--bad);background:#fef2f2}
 .ask b{display:block;font-size:15px;margin-bottom:6px;color:var(--ink)}
+.copy-list{display:grid;gap:7px;margin:8px 0 12px}
+.copy-label{font-size:11px;font-weight:700;color:var(--a);margin-bottom:2px}
+.copy-row{display:flex;gap:5px;align-items:stretch}
+.copy-row input{min-width:0;flex:1;border:1px solid #B8C6D5;border-radius:7px;background:#fff;padding:8px;color:var(--ink);font:13px Consolas,"Malgun Gothic",monospace}
+.copy-row button{border-color:var(--a);color:var(--a);font-weight:700}
 .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .muted{color:var(--mute);font-size:12px}
 .bar{height:8px;background:#EEE7DA;border-radius:4px;overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--a)}
@@ -52,6 +57,16 @@ const post = async (u, b = {}) => { const r = await fetch(u, {method: 'POST', he
 const run = args => post('/api/run', {args});
 let S = null, since = 0, lastAsk = '';
 const ans = a => post('/api/answer', {id: S.ask.id, answer: a}).then(tick);
+async function copyAsk(i, button) {
+  const value = S?.ask?.copy?.[i]?.value ?? '';
+  try { await navigator.clipboard.writeText(String(value)) }
+  catch (e) {
+    const input = button.parentElement.querySelector('input');
+    input.focus(); input.select(); document.execCommand('copy');
+  }
+  const old = button.textContent; button.textContent = '복사됨';
+  setTimeout(() => { button.textContent = old }, 900);
+}
 async function tick() {
   try { S = await (await fetch('/api/state')).json() } catch (e) { return }
   $('#hdot').className = 'dot ' + (S.hrdnet.length ? 'on' : 'off'); $('#htxt').textContent = S.hrdnet.length ? 'HRD-Net 창 있음' : 'HRD-Net 창 없음';
@@ -60,9 +75,13 @@ async function tick() {
   if (a) {
     const B = {ok: '<button class="pri big" onclick="ans(\'ok\')">다 했어요</button>', skip: '<button class="big" onclick="ans(\'skip\')">건너뛰기</button>',
       stop: '<button class="big" onclick="ans(\'stop\')">멈춤</button>', '신청': '<button class="hot big" onclick="ans(\'신청\')">훈련비용 신청</button>',
+      ineligible: '<button class="hot big" onclick="ans(\'ineligible\')">신청불가</button>',
       next: '<button class="pri big" onclick="ans(\'next\')">다음 회차로</button>'};
     const head = {human: '👉 이 단계를 해 주세요', confirm: '★ 최종 신청 — 화면을 확인하고 누르세요', next: '다음 회차로 넘어갈까요?'}[a.kind];
-    $('#ask').innerHTML = `<div class="card ask ${a.kind === 'confirm' ? 'confirm' : ''}"><b>${head}</b><div style="margin-bottom:10px">${esc(a.msg)}</div><div class="row">${a.options.map(o => B[o] || '').join('')}</div></div>`;
+    const copies = (a.copy || []).filter(v => v && v.value !== undefined && String(v.value).length);
+    const copyHtml = copies.length ? `<div class="copy-list">${copies.map((v, i) => `<div><div class="copy-label">${esc(v.label || '복사할 값')}</div><div class="copy-row"><input readonly value="${esc(v.value)}" onclick="this.select()"><button onclick="copyAsk(${i}, this)">복사</button></div></div>`).join('')}</div>` : '';
+    const learn = a.kind === 'human' ? '<div class="muted" style="margin:0 0 9px;color:#1F4E79">● HRD-Net 창 안의 클릭을 이 단계의 자동화 자료로 학습 녹화 중</div>' : '';
+    $('#ask').innerHTML = `<div class="card ask ${a.kind === 'confirm' ? 'confirm' : ''}"><b>${head}</b><div style="margin-bottom:10px">${esc(a.msg)}</div>${copyHtml}${learn}<div class="row">${a.options.map(o => B[o] || '').join('')}</div></div>`;
     if (a.id !== lastAsk) { lastAsk = a.id; try { navigator.vibrate && navigator.vibrate(200) } catch (e) {} document.title = '❗ 답해 주세요 · 비용신청' }
   } else { $('#ask').innerHTML = ''; document.title = '비용신청 · 패널' }
   const n = S.now;
