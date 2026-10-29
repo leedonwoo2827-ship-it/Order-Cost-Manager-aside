@@ -16,7 +16,8 @@ DEFAULT = {
     "downloads": str(Path.home() / "Downloads"),
     # 수주및비용대시보드 주소 — 웹이면 Playwright 로 연다 (확인 후 채운다)
     "dashboard_url": "",
-    "steps": "steps.yaml",
+    # 지금 쓰는 자동화(매크로) — rpa/macros/<id>/ (대시보드에서 바꿀 수 있다)
+    "macro": "hrd-wituk-claim-v1",
     # 단계 사이 쉬는 시간(초) — 설치 프로그램 화면이 늦게 그려질 때 늘린다
     "step_delay": 0.8,
     "image_confidence": 0.85,
@@ -25,6 +26,9 @@ DEFAULT = {
     # 대시보드
     "port": 8820,
     "panel_width": 520,      # 오른쪽 사이드 패널 폭 — 나머지 왼쪽이 HRD-Net 창
+    # 창 배치: auto(모니터 수로 판단) | single(한 화면에 3개) | dual(대시보드는 다른 모니터)
+    "layout": "auto",
+    "work_display": "",      # HRD-Net·패널을 둘 모니터 번호(0부터). 비우면 주 모니터
     "browser": "",           # 사이드 패널을 띄울 Chrome/Edge — 비우면 찾아서 쓴다
     "viewer_password": "",
 }
@@ -38,6 +42,7 @@ COLUMNS = {
     "검색종료": ["종료일", "훈련종료일", "검색종료"],
     "사업장명": ["사업장명", "참여업체", "참여업체명", "업체명"],
     "사업장관리번호": ["사업장관리번호", "관리번호"],
+    "사업자번호": ["사업자번호", "사업자등록번호"],   # 관리번호가 없으면 사업자번호+0 으로 추정 (status.resolve_number)
     "훈련인원": ["훈련인원", "인원", "수료인원"],
     "신청금액": ["신청금액", "신청액", "청구금액"],
     "전자계산서": ["전자계산서", "계산서파일"],

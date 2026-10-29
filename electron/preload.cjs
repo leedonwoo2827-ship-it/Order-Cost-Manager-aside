@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld('rpa', {
   completed: () => ipcRenderer.invoke('rpa:completed'),
   openResults: () => ipcRenderer.invoke('rpa:open-results'),
   openBackup: () => ipcRenderer.invoke('rpa:open-backup'),
+  layout: () => ipcRenderer.invoke('rpa:layout'),
+  onLayout: (callback) => {
+    const listener = (_event, info) => callback(info);
+    ipcRenderer.on('layout:changed', listener);
+    return () => ipcRenderer.removeListener('layout:changed', listener);
+  },
 });
 
 contextBridge.exposeInMainWorld('rpaApi', {

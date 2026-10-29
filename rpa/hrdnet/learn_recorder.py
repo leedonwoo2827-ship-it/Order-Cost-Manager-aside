@@ -16,7 +16,7 @@ from pathlib import Path
 
 from PIL import ImageGrab
 
-from . import config
+from . import config, macros
 
 VK_LBUTTON = 0x01
 
@@ -34,7 +34,8 @@ class StepRecorder:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._pressed = False
-        self.templates = config.ROOT / "templates" / "learned"
+        self.macro_dir = macros.path()
+        self.templates = self.macro_dir / "templates" / "learned"
         self.templates.mkdir(parents=True, exist_ok=True)
 
     def start(self) -> None:
@@ -84,7 +85,7 @@ class StepRecorder:
             x1, y1 = max(0, rel_x - 70), max(0, rel_y - 28)
             x2, y2 = min(width, rel_x + 70), min(height, rel_y + 28)
             image.crop((x1, y1, x2, y2)).save(template)
-            template_path = str(template.relative_to(config.ROOT)).replace("\\", "/")
+            template_path = str(template.relative_to(self.macro_dir)).replace("\\", "/")
         except Exception:  # noqa: BLE001 — 좌표 기록은 유지한다
             template_path = ""
         self.events.append({
@@ -96,7 +97,7 @@ class StepRecorder:
         })
 
     def _save(self) -> None:
-        path = config.ROOT / "learned_actions.json"
+        path = self.macro_dir / "learned_actions.json"
         try:
             data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         except (OSError, json.JSONDecodeError):

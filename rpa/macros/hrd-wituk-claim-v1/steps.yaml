@@ -1,0 +1,185 @@
+# HRD-Net 위탁 비용신청 v1(기본) — PPT「HRD-net 비용신청 프로세스_화면캡쳐(1019)」+「아직수동클릭해야하는부분」(1029) 반영
+#
+# action: focus | click | type | check | attach | wait | screenshot
+#         search_company (관리번호 검색 → 업체명 확인 → 체크) | alert (알림창 글자 판정 후 [확인])
+#         verify_errors (훈련인원 오류여부 Y 확인, 사람에게 묻지 않음) | verify_done (신청 완료 확인)
+# target: 아래 순서로 찾는다. 하나도 못 찾으면 사람에게 해 달라고 안내하고 답을 기다린다.
+#   scope:   팝업 창 제목 — 같은 이름 버튼(비용등록·저장·닫기)이 여러 개라서 찾는 범위를 좁힌다
+#   uia:     {title, control_type, auto_id, found_index}   ← run.bat inspect 결과를 보고 채운다
+#   image:   templates/xxx.png (이 매크로 폴더 기준)        ← UIA 로 안 보이면 버튼을 캡처해 넣는다
+#   learned: template(기본) | coords | off                 ← 학습 녹화(learned_actions.json) 재생 방법
+# 단계 옵션
+#   required          사람 단계에서 [건너뛰기]를 못 하게
+#   optional          첨부할 파일이 없으면 건너뜀
+#   skip_if_missing   화면 요소를 못 찾으면 사람에게 묻지 않고 건너뜀(보조 단계)
+#   verify_amount     클릭 뒤 신청액 총액 == 산출액 총액 == 대시보드 금액 확인
+#   on_skip           업체가 불가로 빠져도 이 단계는 한다(팝업 닫기)    only_on_skip  불가일 때만 한다
+#   confirm           최종 신청 — 실제 신청 모드에서 사람이 [훈련비용 신청]을 눌러야 진행. 미리 채워 보기는 여기서 멈춤
+#   after_round       회차가 끝난 뒤 검색화면(최초 입력 단계)으로 돌아가는 단계
+#   first_round_only  검색화면으로 돌아온 다음 회차에서는 건너뛴다(메뉴 이동)
+# 값 자리표시: {과정명} {회차} {검색시작} {검색종료} {사업장명} {사업장관리번호} {신청금액} {파일}
+# ★ selector(uia/image) 는 가완성 — 담당자 PC 에서 [화면 진단]·[학습 미리채워 보기]로 채운다.
+
+window: ".*(?:HRD.*행정지원|행정지원시스템|Edubion).*"     # 화면 이동에 따라 바뀌는 실제 프로그램 창 제목
+
+steps:
+  - id: "1"
+    say: "공통업무(나의 할일) 화면인지 확인 — 로그인은 사람이 미리 한다"
+    action: focus
+    first_round_only: true
+
+  - id: "2"
+    say: "상단 메뉴 [사업주훈련] → 왼쪽 [비용관리] → [비용신청관리(위탁)]"
+    action: click
+    first_round_only: true
+    target: {uia: {}, image: ""}          # 녹화가 7번 클릭이라 재생 안 함 — 메뉴 세 칸을 2-1/2-2/2-3 으로 나눠 녹화하면 자동
+
+  - id: "2-a"
+    say: "훈련과정/회차 칸에 과정명 입력"
+    action: type
+    text: "{과정명}"
+    target: {uia: {}, image: "templates/learned/2-a_3.png", learned: "off"}
+
+  - id: "2-r"
+    say: "훈련과정/회차 옆 회차 칸에 {회차} 입력 (목록을 한 회차로 거른다)"
+    action: type
+    text: "{회차}"
+    skip_if_missing: true
+    target: {uia: {}, image: "", learned: "off"}
+
+  - id: "2-b"
+    say: "검색기간 입력 ({검색시작} ~ {검색종료})"
+    action: type
+    text: "{검색시작}"
+    then_text: "{검색종료}"
+    target: {uia: {}, image: "", learned: "off"}          # 시작일 칸
+    then_target: {uia: {}, image: "", learned: "off"}     # 종료일 칸 — 비우면 TAB
+
+  - id: "2-c"
+    say: "[검색] 클릭"
+    action: click
+    target: {uia: {title: "검색", control_type: "Button"}, image: "templates/learned/2-c_1.png"}
+
+  - id: "3"
+    say: "목록에서 실시회차 {회차} · 처리상태 '신청대상' 행의 [신청] 클릭 (같은 회차의 정상지급 행은 [회수]라 고르지 않는다)"
+    action: click
+    target: {uia: {title: "신청", control_type: "Button", found_index: 0}, image: ""}
+
+  - id: "4-x"
+    for_each: 사업장
+    steps:
+      - id: "4"
+        say: "참여업체별 비용신청 현황 → [비용등록] 클릭 (참여 업체 목록 팝업) — {사업장명}"
+        action: click
+        target: {uia: {title: "비용등록", control_type: "Button"}, image: "templates/learned/4_1.png", learned: "off"}
+      - id: "4-1"
+        say: "참여 업체 목록 — 사업장관리번호 {사업장관리번호} 검색 → {사업장명} 행 체크"
+        action: search_company
+        required: true
+        target: {scope: "참여 업체 목록", uia: {}, image: "", learned: "off"}          # 관리번호 입력 칸
+        search_button: {scope: "참여 업체 목록", uia: {title: "검색", control_type: "Button"}, image: ""}
+        row_check: {scope: "참여 업체 목록", uia: {}, image: ""}                       # 검색 결과 첫 줄 체크박스
+      - id: "4-2"
+        say: "비용신청대상 사업장 체크"
+        action: check
+        target: {scope: "참여 업체 목록", uia: {}, image: "templates/learned/4-2_1.png"}
+      - id: "4-3"
+        say: "팝업 안의 [비용등록] 클릭"
+        action: click
+        target: {scope: "참여 업체 목록", uia: {title: "비용등록", control_type: "Button"}, image: ""}
+      - id: "4-4"
+        say: "훈련인원 현황 헤더 전체 체크"
+        action: check
+        target: {scope: "비용등록", uia: {}, image: "templates/learned/4-4_1.png"}
+      - id: "4-4e"
+        say: "훈련인원 현황 오류여부 확인 — Y 또는 고용보험 체납이면 이 업체만 신청불가 (묻지 않음)"
+        action: verify_errors
+        scope: "비용등록"
+      - id: "4-5"
+        say: "[산출액→신청액] 클릭 → 신청액 총액 {신청금액}원 확인"
+        action: click
+        verify_amount: true
+        target: {scope: "비용등록", uia: {title_re: "산출액.*신청액", control_type: "Button"}, image: "templates/learned/4-5_3.png"}
+      - id: "4-6"
+        say: "비용등록 팝업 [저장] 클릭"
+        action: click
+        target: {scope: "비용등록", uia: {title: "저장", control_type: "Button"}, image: "templates/learned/4-6_1.png"}
+      - id: "4-6a"
+        say: "'저장되었습니다' 알림 [확인]"
+        action: alert
+      - id: "4-s"
+        say: "(불가 업체) 비용등록 팝업 [닫기]"
+        action: click
+        only_on_skip: true
+        skip_if_missing: true
+        target: {scope: "비용등록", uia: {title: "닫기", control_type: "Button"}, image: "", learned: "off"}
+      - id: "4-7"
+        say: "참여 업체 목록 [닫기] → 비용신청관리 상세(위탁)로 돌아옴"
+        action: click
+        on_skip: true
+        target: {scope: "참여 업체 목록", uia: {title: "닫기", control_type: "Button"}, image: ""}
+
+  - id: "5-a"
+    for_each: 전자계산서목록
+    steps:
+      - id: "5-1"
+        say: "첨부파일 목록 — 훈련비 증명서류 [첨부] → {사업장명} 전자계산서"
+        action: attach
+        file: "{파일}"
+        target: {uia: {}, image: "templates/learned/5-1_1.png"}
+
+  - id: "5-b"
+    for_each: 수납확인서목록
+    steps:
+      - id: "5-2"
+        say: "첨부파일 목록 — 숙박비 관련 증명서류 [첨부] → {사업장명} 수납확인서"
+        action: attach
+        file: "{파일}"
+        target: {uia: {}, image: "templates/learned/5-2_1.png"}
+
+  - id: "6"
+    say: "[저장] 클릭"
+    action: click
+    target: {uia: {title: "저장", control_type: "Button"}, image: "templates/learned/6_1.png"}
+
+  - id: "6a"
+    say: "저장 알림 [확인]"
+    action: alert
+
+  - id: "7"
+    say: "[고용보험확인] 클릭 — 보험료 체납 경고가 뜨면 신청불가로 기록"
+    action: click
+    target: {uia: {title: "고용보험확인", control_type: "Button"}, image: "templates/learned/7_2.png"}
+
+  - id: "7a"
+    say: "고용보험확인 알림 [확인]"
+    action: alert
+
+  - id: "7-s"
+    say: "신청 직전 화면 저장"
+    action: screenshot
+
+  - id: "8"
+    say: "[훈련비용 신청] 클릭 — 최종 신청"
+    action: click
+    confirm: true
+    target: {uia: {title: "훈련비용 신청", control_type: "Button"}, image: ""}
+
+  - id: "8a"
+    say: "신청 알림 [확인]"
+    action: alert
+
+  - id: "8-s"
+    say: "신청 후 화면 저장"
+    action: screenshot
+
+  - id: "9"
+    say: "신청 완료 확인 — 상단 버튼이 [회수] [신청서 출력]만 남았는지"
+    action: verify_done
+    target: {uia: {title: "회수", control_type: "Button"}, image: ""}
+
+  - id: "10"
+    say: "아래 탭 [비용신청관리(위탁)] 클릭 → 검색화면(최초 입력 단계)으로 돌아가 다음 회차"
+    action: click
+    after_round: true
+    target: {uia: {title_re: "비용신청관리\\(위탁\\)$", control_type: "TabItem"}, image: "", learned: "off"}

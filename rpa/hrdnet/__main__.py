@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections.abc import Sequence
+from pathlib import Path
 
 from . import config
 
@@ -28,6 +30,9 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--simulate", action="store_true", help="simulate without controlling HRD-Net")
     mode.add_argument("--fill", action="store_true", help="fill fields but stop before final submission")
     upload_all.add_argument("--only", default="", help="comma-separated outbox folder names")
+    upload_all.add_argument("--macro", default="", help="macro id under rpa/macros (default: local.json macro)")
+    upload_all.add_argument("--companies", default="", help="JSON file with selected company status keys")
+    upload_all.add_argument("--learn", action="store_true", help="with --fill: hand every step to a person and record clicks")
 
     result = sub.add_parser("result", help="create the result table")
     result.add_argument("day", nargs="?", default="", help="result date (optional)")
@@ -85,8 +90,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "upload-all":
         from .upload import run_all
 
+        if args.macro:
+            os.environ["HRD_MACRO"] = args.macro   # 학습 녹화도 같은 매크로 폴더에 저장되게
         only = [name for name in args.only.split(",") if name] if args.only else None
-        run_all(dry=args.dry_run, simulate=args.simulate, fill=args.fill, only=only)
+        companies = None
+        if args.companies:
+            companies = set(json.loads(Path(args.companies).read_text(encoding="utf-8")))
+        run_all(dry=args.dry_run, simulate=args.simulate, fill=args.fill or args.learn, only=only,
+                companies=companies, learn=args.learn)
     elif args.command == "result":
         from .result import run
 

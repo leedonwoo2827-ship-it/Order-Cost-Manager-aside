@@ -174,9 +174,11 @@ function askBox(a) {
   if (!a) return '';
   const btn = {ok: '<button class="pri" onclick="ans(\'ok\')">다 했어요</button>', skip: '<button onclick="ans(\'skip\')">건너뛰기</button>',
     stop: '<button onclick="ans(\'stop\')">멈춤</button>', '신청': '<button class="hot" onclick="ans(\'신청\')">훈련비용 신청</button>',
-    ineligible: '<button class="hot" onclick="ans(\'ineligible\')">신청불가</button>',
-    next: '<button class="pri" onclick="ans(\'next\')">다음 회차로</button>'};
-  const head = {human: '사람이 해 줄 단계', confirm: '최종 신청 확인', next: '다음 회차?'}[a.kind];
+    ineligible: `<button class="hot" onclick="ans('ineligible')">${a.kind === 'confirm' ? '신청불가' : '이 업체 불가'}</button>`,
+    proceed: '<button class="pri" onclick="ans(\'proceed\')">그래도 진행</button>',
+    next: `<button class="pri" onclick="ans('next')">${a.kind === 'filled' ? '확인 끝 → 다음 회차로' : '다음 회차로'}</button>`};
+  const head = {human: '사람이 해 줄 단계', confirm: '최종 신청 확인', next: '다음 회차?', filled: '미리 채워 보기 끝 — 화면 확인',
+    company: '업체 확인이 필요해요'}[a.kind];
   return `<div class="ask ${a.kind === 'confirm' ? 'confirm' : ''}"><b>${head}</b><div style="margin-bottom:8px">${esc(a.msg)}</div>${S.admin ? `<div class="row">${a.options.map(o => btn[o] || '').join('')}</div>` : ''}</div>`;
 }
 const ans = a => post('/api/answer', {id: S.ask.id, answer: a}).then(refresh);

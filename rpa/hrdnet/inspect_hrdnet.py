@@ -21,13 +21,12 @@ def run() -> None:
     except ImportError:
         print("pywinauto 가 없습니다 — setup.bat 을 먼저 실행하세요")
         return
-    import yaml
+    from . import macros
 
     d = config.dirs()
     out = d["logs"] / f"inspect_{datetime.now():%Y%m%d_%H%M%S}.txt"
     lines = []
-    spec = yaml.safe_load((config.ROOT / config.load()["steps"]).read_text(encoding="utf-8")) or {}
-    pattern = spec.get("window", ".*(?:HRD|Edubion).*")
+    pattern = macros.window_pattern()
     wins = [w for w in Desktop(backend="uia").windows() if re.search(pattern, w.window_text() or "", re.I)]
     if not wins:
         print(f"설정한 창 제목 패턴과 맞는 창이 없습니다: {pattern!r}")

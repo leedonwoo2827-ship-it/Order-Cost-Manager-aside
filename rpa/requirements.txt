@@ -7,3 +7,5 @@ pillow>=10.0
 # 1 받기를 브라우저 방식으로 쓸 때만:  pip install playwright && playwright install chromium
 fastapi>=0.110
 uvicorn>=0.29
+numpy>=1.26
+pywin32>=306

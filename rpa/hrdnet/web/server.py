@@ -24,13 +24,14 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
-from .. import config
+from .. import config, macros, status
 
 STATIC = Path(__file__).parent / "static"
 ALLOWED = {"sample", "fetch", "organize", "inspect", "hrdnet-open", "upload-all", "result", "backup"}
 NAMES = {"sample": "샘플 넣기", "fetch": "1 받기(다운로드 감시)", "organize": "2 정리", "inspect": "화면 진단",
          "hrdnet-open": "HRD-Net 열기", "upload-all": "3 올리기", "result": "4 결과", "backup": "백업·정리"}
-MODES = {"--simulate": "모의 실행", "--dry-run": "점검(찾기만)", "--fill": "미리 채워 보기"}
+MODES = {"--simulate": "모의 실행", "--dry-run": "점검(찾기만)", "--fill": "미리 채워 보기", "--learn": "학습 미리채워 보기"}
+RUN_OPTIONS = ("--simulate", "--dry-run", "--fill", "--learn", "--only", "--include-test", "--macro", "--companies")
 LOCAL_HOSTS = {"127.0.0.1", "::1"}
 UI_PORT = 0
 
@@ -133,54 +134,83 @@ def _read(p: Path, default=None):
         return default
 
 
-def _rounds(d) -> list[dict]:
+def _evidence_index(d) -> dict:
+    """inbox/증빙 을 한 번만 훑어 (회차폴더, 업체키, 종류) → 파일 색인을 만든다 (2초마다 600업체도 가볍게).
+    구조: 증빙/<과정>_<N>회차/<업체명>/전자계산서_….pdf · 수납확인서_….pdf  (예전 평면 구조도 읽는다)"""
     from ..organize import _company_key
 
+    idx: dict = {"folder": {}, "flat": {}, "count": {}}
+    for p in d["증빙"].rglob("*.pdf"):
+        parts = p.relative_to(d["증빙"]).parts
+        kind = next((k for k, words in config.EVIDENCE.items() if any(w in p.name for w in words)), "")
+        if len(parts) >= 3:
+            ck = _company_key(parts[-2])
+            idx["count"][(parts[0], ck)] = idx["count"].get((parts[0], ck), 0) + 1
+            if kind:
+                idx["folder"].setdefault((parts[0], ck, kind), p)
+        elif len(parts) == 2 and kind:
+            idx["flat"].setdefault((parts[0], kind), []).append(p)
+    return idx
+
+
+def _find_in_index(idx: dict, round_folder: str, company: str, kind: str) -> Path | None:
+    from ..organize import _company_key
+
+    ck = _company_key(company)
+    hit = idx["folder"].get((round_folder, ck, kind))
+    if hit or not ck:
+        return hit
+    flat = [p for p in idx["flat"].get((round_folder, kind), []) if ck in _company_key(p.stem)]
+    return flat[0] if len(flat) == 1 else None
+
+
+def _rounds(d) -> list[dict]:
+    """회차 목록 + 업체별 상태. 증빙은 manifest 가 아니라 지금 폴더를 보고 판단한다
+    (사람이 업체 폴더에 계산서·수납확인서를 넣으면 다음 새로고침에 바로 '신청가능'이 된다)."""
+    from ..organize import _company_key
+
+    idx = _evidence_index(d)
+    saved = status.load()
+    known = status.known_numbers()
     out = []
     for m in sorted(d["outbox"].glob("*/manifest.json")):
         j = _read(m)
         if not j:
             continue
         up = j.get("올리기") or {}
-        invoices = {str(item.get("사업장명", "")).strip(): item.get("파일", "")
-                    for item in (j.get("전자계산서목록") or []) if isinstance(item, dict)}
-        receipts = {str(item.get("사업장명", "")).strip(): item.get("파일", "")
-                    for item in (j.get("수납확인서목록") or []) if isinstance(item, dict)}
-        # 구버전 manifest에는 회차 전체 대표 파일만 들어 있거나 목록이 일부만 저장되어 있다.
-        # 상세 표는 실제 회차 증빙 폴더도 확인해 업체별 파일을 빠짐없이 보여 준다.
-        evidence_dir = d["증빙"] / m.parent.name
-        evidence_pdfs = list(evidence_dir.glob("*.pdf")) if evidence_dir.exists() else []
-
-        def evidence_file(kind: str, company: str, saved: dict[str, str]) -> str:
-            stored = saved.get(company, "")
-            if stored and Path(stored).exists():
-                return Path(stored).name
-            company_key = _company_key(company)
-            words = config.EVIDENCE.get(kind, [kind])
-            for pdf in evidence_pdfs:
-                if any(word in pdf.name for word in words) and company_key and company_key in _company_key(pdf.stem):
-                    return pdf.name
-            return ""
-
+        folder = m.parent.name
+        course, rnd = j.get("과정명", ""), str(j.get("회차", ""))
         businesses = []
         for item in (j.get("사업장") or []):
             if not isinstance(item, dict):
                 continue
             name = str(item.get("사업장명", "")).strip()
+            inv = _find_in_index(idx, folder, name, "전자계산서")
+            rec = _find_in_index(idx, folder, name, "수납확인서")
+            st = status.merged(course, rnd, item, bool(inv), bool(rec), saved)
+            n = idx["count"].get((folder, _company_key(name)), 0)
+            number, number_from = status.resolve_number(item, known)
             businesses.append({
                 "사업장명": name,
-                "사업장관리번호": str(item.get("사업장관리번호", "")).strip(),
+                "사업장관리번호": number,
+                "관리번호출처": number_from,
+                "사업자번호": str(item.get("사업자번호", "") or "").strip(),
                 "훈련인원": item.get("훈련인원", 0),
                 "신청금액": item.get("신청금액", 0),
-                "전자계산서": evidence_file("전자계산서", name, invoices),
-                "수납확인서": evidence_file("수납확인서", name, receipts),
+                "전자계산서": inv.name if inv else "",
+                "수납확인서": rec.name if rec else "",
+                "증빙확인": f"업체 폴더에 PDF {n}개 (2개여야 함)" if n and n != 2 else "",
+                **st,
             })
-        out.append({"folder": m.parent.name, "과정명": j.get("과정명"), "회차": j.get("회차"),
-                    "사업장": len(j.get("사업장", [])), "첨부": list(j.get("첨부", {})),
-                    "사업장내역": businesses,
-                    "신청금액": j.get("신청금액", 0), "훈련인원": j.get("훈련인원", 0), "정리": j.get("상태"),
+        ready = sum(1 for b in businesses if b["상태"] == "신청가능")
+        waiting = sum(1 for b in businesses if not (b["전자계산서"] and b["수납확인서"]))
+        out.append({"folder": folder, "과정명": course, "회차": rnd,
+                    "사업장": len(businesses), "첨부": list(j.get("첨부", {})),
+                    "사업장내역": businesses, "신청가능": ready, "증빙대기": waiting,
+                    "신청금액": j.get("신청금액", 0), "훈련인원": j.get("훈련인원", 0),
+                    "정리": "준비완료" if ready else ("증빙대기" if waiting else "대상없음"),
                     "정리일시": j.get("정리일시", ""), "올리기": up.get("상태") or "미실행", "모드": up.get("모드", ""),
-                    "끝": up.get("끝", ""), "오류": up.get("오류", "")})
+                    "매크로": up.get("매크로", ""), "끝": up.get("끝", ""), "오류": up.get("오류", "")})
     return out
 
 
@@ -228,23 +258,22 @@ def state(request: Request):
     results = sorted(p.name for p in d["결과"].glob("*") if p.is_file())
     from .. import winpos
     try:
-        import yaml
-        pattern = (yaml.safe_load((config.ROOT / cfg["steps"]).read_text(encoding="utf-8")) or {}).get("window", "HRD")
-        hrd = [t for _h, t in winpos.windows(pattern)]
+        hrd = [t for _h, t in winpos.windows(macros.window_pattern())]
     except Exception:  # noqa: BLE001
         hrd = []
     count = lambda k, v: sum(1 for r in rs if r[k] == v)  # noqa: E731
     return {
         "admin": request.state.admin, "busy": RUN.busy, "label": RUN.label if RUN.busy else "",
         "root": str(d["root"]), "hrdnet": hrd, "hrdnet_exe": cfg.get("hrdnet_exe", ""),
-        "kpi": {"회차": len(rs), "준비완료": count("정리", "준비완료"), "증빙누락": count("정리", "증빙누락"),
+        "kpi": {"회차": len(rs), "준비완료": count("정리", "준비완료"), "증빙대기": count("정리", "증빙대기"),
+                "업체": sum(r["사업장"] for r in rs), "업체_신청가능": sum(r["신청가능"] for r in rs),
                 "채움완료": count("올리기", "채움완료"), "성공": count("올리기", "성공"),
                 "문제": sum(1 for r in rs if r["올리기"] in ("실패", "오류", "중단"))},
         "rounds": rs, "inbox": inbox, "pdfs": pdfs, "results": results,
         "report": reports[-1].read_text(encoding="utf-8") if reports else "",
         "report_name": reports[-1].name if reports else "",
         "ask": _read(d["logs"] / "_ask.json"), "now": _read(d["logs"] / "_now.json"),
-        "runs": _runs(d, limit=12),
+        "runs": _runs(d, limit=12), "macro": cfg.get("macro") or macros.DEFAULT_ID,
     }
 
 
@@ -286,6 +315,7 @@ def shot(name: str):
 # ── 실행 ──────────────────────────────────────────────────────────────
 class RunReq(BaseModel):
     args: List[str]
+    companies: Optional[List[str]] = None   # 체크한 업체(status 키) — 파일로 넘긴다(600곳이면 명령줄이 너무 길다)
 
 
 @app.post("/api/run")
@@ -293,12 +323,28 @@ def run(req: RunReq):
     if not req.args or req.args[0] not in ALLOWED:
         raise HTTPException(400, "허용되지 않은 명령이에요")
     for a in req.args[1:]:
-        if a.startswith("--") and a.split("=", 1)[0] not in ("--simulate", "--dry-run", "--fill", "--only", "--include-test"):
+        if a.startswith("--") and a.split("=", 1)[0] not in RUN_OPTIONS:
             raise HTTPException(400, f"허용되지 않은 옵션: {a}")
-    if req.args[0] == "upload-all" and not any(a.startswith("--only=") for a in req.args):
-        raise HTTPException(400, "올릴 회차를 골라 주세요")
-    RUN.start(req.args)
-    if req.args[0] == "hrdnet-open" or (req.args[0] == "upload-all" and "--simulate" not in req.args):
+    args = [a for a in req.args if not a.startswith("--companies=")]
+    if args[0] == "upload-all":
+        if not any(a.startswith("--only=") for a in args):
+            raise HTTPException(400, "올릴 회차를 골라 주세요")
+        mid = next((a.split("=", 1)[1] for a in args if a.startswith("--macro=")), "")
+        try:
+            meta = macros.meta(macros.path(mid or None))
+        except FileNotFoundError as e:
+            raise HTTPException(400, str(e)) from e
+        live = not any(a in args for a in ("--simulate", "--dry-run", "--fill", "--learn"))
+        if live and meta.get("상태") == "시험중":
+            raise HTTPException(400, f"‘{meta['표시명']}’은 시험중인 매크로라 [신청]을 할 수 없어요. "
+                                     "미리 채워 보기로 확인한 뒤 [사용 승격]을 눌러 주세요.")
+        if req.companies is not None:
+            d = config.dirs()
+            f = d["logs"] / "_companies.json"
+            f.write_text(json.dumps(sorted(set(req.companies)), ensure_ascii=False), encoding="utf-8")
+            args.append(f"--companies={f}")
+    RUN.start(args)
+    if args[0] == "hrdnet-open" or (args[0] == "upload-all" and "--simulate" not in args):
         from .. import winpos
         threading.Thread(target=winpos.open_panel, args=(UI_PORT,), daemon=True).start()
     return {"ok": True}
@@ -324,6 +370,79 @@ def answer(req: AnswerReq):
     (d["logs"] / "_answer.json").write_text(json.dumps({"id": req.id, "answer": req.answer}), encoding="utf-8")
     RUN.add(f"  ↳ 답: {req.answer}")
     return {"ok": True}
+
+
+# ── 업체 상태 ─────────────────────────────────────────────────────────
+class CompaniesReq(BaseModel):
+    items: List[dict]   # [{key, 상태?, 사유?}]
+
+
+@app.get("/api/companies")
+def companies_get():
+    return {"states": list(status.STATES), "slots": status.SLOTS, "data": status.load()}
+
+
+@app.post("/api/companies")
+def companies_post(req: CompaniesReq):
+    bad = [it.get("상태") for it in req.items if it.get("상태") and it["상태"] not in status.STATES]
+    if bad:
+        raise HTTPException(400, f"상태는 {', '.join(status.STATES)} 중 하나예요")
+    return {"ok": True, "n": status.update(req.items)}
+
+
+# ── 매크로 ────────────────────────────────────────────────────────────
+class MacroReq(BaseModel):
+    id: str = ""
+    name: str = ""
+    source: str = ""
+
+
+@app.get("/api/macros")
+def macros_get():
+    cfg = config.load()
+    return {"macros": macros.listing(), "current": cfg.get("macro") or macros.DEFAULT_ID,
+            "default": macros.DEFAULT_ID, "modes": macros.MODES, "slots": status.SLOTS}
+
+
+@app.post("/api/macros/clone")
+def macros_clone(req: MacroReq):
+    try:
+        return {"ok": True, "macro": macros.clone(req.name, req.source or macros.DEFAULT_ID)}
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/api/macros/promote")
+def macros_promote(req: MacroReq):
+    try:
+        return {"ok": True, "macro": macros.promote(req.id)}
+    except FileNotFoundError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/api/macros/select")
+def macros_select(req: MacroReq):
+    try:
+        macros.path(req.id)
+    except FileNotFoundError as e:
+        raise HTTPException(400, str(e)) from e
+    cfg = config.load()
+    cfg["macro"] = req.id
+    config.LOCAL.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {"ok": True}
+
+
+# ── 창 배치 ───────────────────────────────────────────────────────────
+class LayoutReq(BaseModel):
+    hrdnet: dict                   # HRD-Net 자리 {x, y, width, height} (물리 화소)
+    panel: dict                    # 사이드 패널 자리
+    scale: float = 1.0             # 그 모니터의 배율 (Chrome 창 옵션은 배율로 나눈 값)
+
+
+@app.post("/api/layout")
+def layout(req: LayoutReq):
+    from .. import winpos
+    return {"ok": True, **winpos.arrange(req.hrdnet, req.panel, req.scale, UI_PORT)}
 
 
 @app.post("/api/panel/open")
@@ -360,7 +479,8 @@ class OpenReq(BaseModel):
 def open_folder(req: OpenReq):
     d = config.dirs()
     p = {"inbox": d["inbox"], "증빙": d["증빙"], "outbox": d["outbox"], "결과": d["결과"], "logs": d["logs"],
-         "steps": config.ROOT / "steps.yaml", "templates": config.ROOT / "templates"}.get(req.what)
+         "steps": macros.path(), "templates": macros.path() / "templates",
+         "status": d["root"] / "status"}.get(req.what)
     if not p:
         raise HTTPException(400, "모르는 폴더")
     os.startfile(p)  # noqa: S606

@@ -1,4 +1,4 @@
-const {app, BrowserWindow, Menu, shell, ipcMain, dialog} = require('electron');
+const {app, BrowserWindow, Menu, shell, ipcMain, dialog, screen} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
@@ -9,6 +9,21 @@ const {createReceiptPdf} = require('./receiptPdf.cjs');
 const APP_ID = 'kr.co.ubion.order-cost-manager';
 
 app.setAppUserModelId(APP_ID);
+
+// 대시보드는 하나만 — 두 번째로 켜면 있던 창을 앞으로
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+}
+app.on('second-instance', () => {
+  const win = mainWindow();
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+});
+
+const mainWindow = () => BrowserWindow.getAllWindows()[0] || null;
 
 function createWindow() {
   const window = new BrowserWindow({
@@ -145,37 +160,48 @@ const csvCell = (value) => {
 // 대시보드 → rpa inbox: 비용신청대상 CSV + 사업장별 수납확인서 PDF
 ipcMain.handle('rpa:export', async (event, payload) => {
   const rows = Array.isArray(payload?.rows) ? payload.rows.slice(0, 5000) : [];
-  const receipts = Array.isArray(payload?.receipts) ? payload.receipts.slice(0, 500) : [];
   if (rows.length === 0) return {saved: false, reason: '내보낼 회차가 없습니다'};
 
   const root = rpaDataRoot();
   const inbox = path.join(root, 'inbox');
   await fs.mkdir(inbox, {recursive: true});
 
-  const header = ['과정명', '회차', '시작일', '종료일', '사업장명', '훈련인원', '신청금액'];
+  // 사업자번호: 엔진이 사업장관리번호(대개 사업자번호+0, 유한회사 제외)를 추정하는 데 쓴다
+  const header = ['과정명', '회차', '시작일', '종료일', '사업장명', '사업자번호', '훈련인원', '신청금액'];
   const lines = [header.join(',')];
   for (const row of rows) {
     lines.push(
-      [row.course, row.round, row.start, row.end, row.company, row.headcount, row.amount].map(csvCell).join(','),
+      [row.course, row.round, row.start, row.end, row.company, row.bizNo || '', row.headcount, row.amount].map(csvCell).join(','),
     );
   }
   const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 12);
   const csvPath = path.join(inbox, `비용신청대상_${stamp}.csv`);
   await fs.writeFile(csvPath, `\uFEFF${lines.join('\r\n')}\r\n`, 'utf8');
 
-  let receiptCount = 0;
-  for (const receipt of receipts) {
-    const dir = path.join(inbox, '증빙', `${cleanName(receipt.course)}_${cleanName(receipt.round)}`);
-    await fs.mkdir(dir, {recursive: true});
-    const pdf = await createReceiptPdf(receipt.html);
-    await fs.writeFile(path.join(dir, safePdfFileName(receipt.fileName)), pdf);
-    receiptCount += 1;
+  // 증빙/<과정>_<N>회차/<업체명>/ 빈 폴더 — 사람이 전자계산서·수납확인서 2개를 넣으면 비용신청 탭에서 '신청가능'이 된다.
+  // (폴더 이름 규칙은 rpa/hrdnet/organize.py folder_name 과 같다. 백업도 같은 회차 폴더 이름으로 옮긴다)
+  const folders = new Set();
+  for (const row of rows) {
+    const round = String(row.round ?? '').replace(/회차$/, '').trim();
+    const dir = path.join(inbox, '증빙', `${cleanName(row.course)}_${cleanName(round)}회차`, cleanName(row.company));
+    if (!folders.has(dir) && cleanName(row.company)) {
+      folders.add(dir);
+      await fs.mkdir(dir, {recursive: true});
+    }
   }
-  return {saved: true, root, csvPath, rows: rows.length, receipts: receiptCount};
+  return {saved: true, root, csvPath, rows: rows.length, folders: folders.size,
+    evidenceRoot: path.join(inbox, '증빙')};
 });
 
 // rpa 엔진(8820)을 켜고 사이드 패널(오른쪽 좁은 창)을 연다. 로그인·인증서는 사람이 한다.
-ipcMain.handle('rpa:launch', async () => {
+let launching = null;   // 엔진을 켜는 중에 또 누르면 같은 작업을 기다린다(run.bat·패널이 두 번 뜨지 않게)
+
+ipcMain.handle('rpa:launch', () => {
+  if (!launching) launching = launchRpa().finally(() => { launching = null; });
+  return launching;
+});
+
+async function launchRpa() {
   const dir = rpaDir();
   if (!(await rpaRequest('GET', '/api/state'))) {
     const bat = path.join(dir, 'run.bat');
@@ -196,21 +222,104 @@ ipcMain.handle('rpa:launch', async () => {
     }
     if (!up) return {ok: false, reason: 'rpa 엔진이 켜지지 않았습니다. rpa 폴더 run.bat 창의 메시지를 확인하세요'};
   }
-  const opened = await rpaRequest('POST', '/api/panel/open', 5000);
-  return {ok: opened, reason: opened ? '' : 'Chrome 또는 Edge를 찾지 못해 패널을 열지 못했습니다'};
+  const placed = await arrangeWindows();
+  return {ok: placed.ok, layout: placed.layout,
+    reason: placed.ok ? '' : 'Chrome 또는 Edge를 찾지 못해 패널을 열지 못했습니다'};
+}
+
+// ── 창 배치 ──────────────────────────────────────────────────────────────
+// 가로형 모니터가 2개 이상: 작업 모니터(local.json work_display, 기본 주 모니터)에 HRD-Net(왼쪽)+패널(오른쪽),
+//                         대시보드는 남는 모니터에 최대화.
+// 모니터 1개: 한 화면에 3개 — 왼쪽 약 65% HRD-Net, 오른쪽 위 패널(약 55%), 오른쪽 아래 대시보드(축소 보기).
+function rpaLocal() {
+  try {
+    return JSON.parse(fsSync.readFileSync(path.join(rpaDir(), 'local.json'), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function planLayout() {
+  const local = rpaLocal();
+  const displays = screen.getAllDisplays();
+  const isLandscape = (d) => d.bounds.width >= d.bounds.height;
+  const landscape = displays.filter(isLandscape);
+  const primary = screen.getPrimaryDisplay();
+  const wanted = Number.parseInt(local.work_display, 10);
+  const work = (Number.isInteger(wanted) && displays[wanted] && isLandscape(displays[wanted]))
+    ? displays[wanted]
+    : (isLandscape(primary) ? primary : landscape[0] || primary);
+  const mode = local.layout === 'single' || local.layout === 'dual'
+    ? local.layout
+    : (landscape.length >= 2 ? 'dual' : 'single');
+  const other = displays.find((d) => d.id !== work.id && isLandscape(d))
+    || displays.find((d) => d.id !== work.id);
+  const a = work.workArea;   // DIP
+  const panelWidth = Math.max(360, Math.min(Number(local.panel_width) || 520, Math.round(a.width * 0.4)));
+  if (mode === 'dual' && other) {
+    return {
+      mode, compact: false, work,
+      hrdnet: {x: a.x, y: a.y, width: a.width - panelWidth, height: a.height},
+      panel: {x: a.x + a.width - panelWidth, y: a.y, width: panelWidth, height: a.height},
+      dashboard: other.workArea, maximize: true,
+    };
+  }
+  const left = Math.round(a.width * 0.65);
+  const right = a.width - left;
+  const panelHeight = Math.round(a.height * 0.55);
+  return {
+    mode: 'single', compact: true, work,
+    hrdnet: {x: a.x, y: a.y, width: left, height: a.height},
+    panel: {x: a.x + left, y: a.y, width: right, height: panelHeight},
+    dashboard: {x: a.x + left, y: a.y + panelHeight, width: right, height: a.height - panelHeight}, maximize: false,
+  };
+}
+
+// DIP → 물리 화소 (Win32 MoveWindow 는 물리 화소). 모니터마다 배율이 달라도 맞게.
+const toPhysical = (rect) => (process.platform === 'win32' && screen.dipToScreenRect
+  ? screen.dipToScreenRect(null, rect)
+  : rect);
+
+async function arrangeWindows() {
+  const plan = planLayout();
+  const win = mainWindow();
+  if (win) {
+    win.unmaximize();
+    win.setMinimumSize(320, 240);
+    win.setBounds(plan.dashboard);
+    if (plan.maximize) win.maximize();
+    win.webContents.send('layout:changed', {mode: plan.mode, compact: plan.compact});
+  }
+  const body = JSON.stringify({hrdnet: toPhysical(plan.hrdnet), panel: toPhysical(plan.panel), scale: plan.work.scaleFactor});
+  const res = await rpaCall('POST', '/api/layout', body, 15000);
+  return {ok: res.ok && res.data?.panel !== false, layout: {mode: plan.mode, compact: plan.compact}};
+}
+
+ipcMain.handle('rpa:layout', async () => {
+  if (!(await rpaRequest('GET', '/api/state'))) {
+    return {ok: false, reason: '엔진이 꺼져 있습니다. 「사이드 패널 열기」를 먼저 누르세요'};
+  }
+  return arrangeWindows();
 });
 
 // 대시보드 화면 → rpa 엔진 API (허용한 경로만). 회차 정리·모의/미리채움/신청 실행·상태 조회에 쓴다.
-const RPA_API_ALLOWED = new Set(['/api/state', '/api/run', '/api/stop', '/api/backups']);
+const RPA_API_ALLOWED = new Set([
+  '/api/state', '/api/run', '/api/stop', '/api/backups', '/api/answer', '/api/open',
+  '/api/companies', '/api/macros', '/api/macros/clone', '/api/macros/promote', '/api/macros/select',
+]);
 
 ipcMain.handle('rpa:api', async (event, req) => {
   const method = req?.method === 'POST' ? 'POST' : 'GET';
   const urlPath = String(req?.path || '');
   if (!RPA_API_ALLOWED.has(urlPath)) return {ok: false, status: 400, error: '허용되지 않은 경로'};
   const body = method === 'POST' ? JSON.stringify(req?.body ?? {}) : '';
+  return rpaCall(method, urlPath, body);
+});
+
+function rpaCall(method, urlPath, body, timeout = 8000) {
   return new Promise((resolve) => {
     const r = http.request(
-      {host: '127.0.0.1', port: RPA_PORT, path: urlPath, method, timeout: 8000,
+      {host: '127.0.0.1', port: RPA_PORT, path: urlPath, method, timeout,
         headers: {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body)}},
       (res) => {
         let text = '';
@@ -229,7 +338,7 @@ ipcMain.handle('rpa:api', async (event, req) => {
     if (body) r.write(body);
     r.end();
   });
-});
+}
 
 // 결과표(결과_YYYYMMDD.xlsx · 완료처리대상_*.csv)가 있는 폴더를 탐색기로 연다
 ipcMain.handle('rpa:open-results', async () => {
@@ -274,6 +383,7 @@ ipcMain.handle('rpa:completed', async () => {
 });
 
 app.whenReady().then(() => {
+  if (!gotLock) return;
   Menu.setApplicationMenu(null);
   createWindow();
 

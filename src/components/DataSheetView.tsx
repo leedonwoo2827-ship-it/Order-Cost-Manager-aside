@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { IntegratedDataRow } from '../types';
+import { CompanyMapping, IntegratedDataRow, InvoiceRecord } from '../types';
 import {
   Download,
   Filter,
@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { ReceiptExportModal } from './ReceiptExportModal';
 import { groupReceiptRows, isReceiptEligible } from '../utils/receiptDocument';
-import { buildCostClaimPayload, isCostClaimTarget, roundKey } from '../utils/costClaim';
+import { buildCostClaimPayload, businessNumberLookup, isCostClaimTarget, roundKey } from '../utils/costClaim';
 
 interface DataSheetViewProps {
   data: IntegratedDataRow[];
@@ -35,6 +35,8 @@ interface DataSheetViewProps {
   isRefreshing?: boolean;
   lastSyncTime?: string | null;
   onShowToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  companyMappings?: CompanyMapping[];   // 비용신청 내보내기: 사업자번호 찾기용
+  invoices?: InvoiceRecord[];
 }
 
 export const DataSheetView: React.FC<DataSheetViewProps> = ({
@@ -48,6 +50,8 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
   isRefreshing = false,
   lastSyncTime,
   onShowToast,
+  companyMappings,
+  invoices,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'need_review' | 'partial' | 'combined' | 'unmapped' | 'normal'>('all');
@@ -254,14 +258,14 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
       onShowToast?.('설치형 프로그램(Electron)에서만 쓸 수 있습니다.', 'error');
       return;
     }
-    const payload = buildCostClaimPayload(data);
+    const payload = buildCostClaimPayload(data, businessNumberLookup(companyMappings, invoices));
     const rounds = new Set(payload.rows.map((r) => `${r.course}__${r.round}`)).size;
     if (payload.rows.length === 0) {
       onShowToast?.('수금이 확인되고 비용신청 전인 회차가 없습니다.', 'info');
       return;
     }
     if (!window.confirm(`${rounds}개 회차(${payload.rows.length}행)를 HRD-Net 비용신청 대상으로 내보내고 사이드 패널을 엽니다.
-전자계산서 PDF는 rpa 증빙 폴더에 직접 넣어 주세요.`)) return;
+증빙 폴더에 회차 > 업체 폴더가 만들어집니다. 업체 폴더마다 전자계산서·수납확인서 2개를 넣으면 비용신청 탭에서 '신청가능'이 됩니다.`)) return;
     setClaimBusy(true);
     try {
       const exported = await window.rpa.exportClaims(payload);
@@ -269,7 +273,7 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
         onShowToast?.(exported.reason || '내보내기에 실패했습니다.', 'error');
         return;
       }
-      onShowToast?.(`내보냄: ${exported.rows}행 · 수납확인서 ${exported.receipts}건 (${exported.root})`, 'success');
+      onShowToast?.(`내보냄: ${exported.rows}행 · 업체 폴더 ${exported.folders ?? 0}개 (${exported.evidenceRoot || exported.root}) — 계산서·수납확인서를 넣어 주세요`, 'success');
       const launched = await window.rpa.launch();
       if (!launched.ok) {
         onShowToast?.(launched.reason || '사이드 패널을 열지 못했습니다.', 'error');
