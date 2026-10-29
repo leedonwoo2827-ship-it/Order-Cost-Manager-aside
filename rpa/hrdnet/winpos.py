@@ -26,7 +26,7 @@ user32 = ctypes.windll.user32 if sys.platform.startswith("win") else None
 def screen() -> tuple[int, int]:
     """작업 표시줄을 뺀 작업 영역 (가로, 세로)."""
     try:
-        user32.SetProcessDPIAware()
+        _dpi_aware()
         r = wintypes.RECT()
         user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0)  # SPI_GETWORKAREA
         return r.right - r.left, r.bottom - r.top
@@ -72,17 +72,37 @@ def saved_layout() -> dict:
             "panel": {"x": w - pw, "y": 0, "width": pw, "height": h}, "scale": 1.0}
 
 
+def _dpi_aware() -> None:
+    """좌표를 모니터마다 실제 화소로 다룬다(모니터별 배율 인식). 배율이 다른 모니터가 섞여도
+    (예: 세로 주모니터 100% + 가로 보조 150%) 창이 엉뚱한 자리·크기로 가지 않게."""
+    try:
+        if user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):   # PER_MONITOR_AWARE_V2
+            return
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)                 # PER_MONITOR_AWARE
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        user32.SetProcessDPIAware()  # 마지막 수단(시스템 배율만)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _move(hwnd: int, r: dict) -> None:
+    """두 번 옮긴다 — 배율이 다른 모니터로 넘어가면 창(Chrome 등)이 배율에 맞춰 스스로 크기를 바꿔
+    자리가 밀리기 때문에, 넘어간 뒤 한 번 더 정확히 맞춘다."""
     user32.ShowWindow(hwnd, 9)  # SW_RESTORE (최대화 풀기)
-    user32.MoveWindow(hwnd, int(r["x"]), int(r["y"]), int(r["width"]), int(r["height"]), True)
+    for _ in range(2):
+        user32.MoveWindow(hwnd, int(r["x"]), int(r["y"]), int(r["width"]), int(r["height"]), True)
+        time.sleep(0.15)
 
 
 def place_left(pattern: str) -> bool:
     """HRD-Net 창을 정해진 자리(기본: 화면 왼쪽, 패널 자리를 뺀 나머지)로."""
-    try:
-        user32.SetProcessDPIAware()
-    except Exception:  # noqa: BLE001
-        pass
+    _dpi_aware()
     r = saved_layout()["hrdnet"]
     hits = windows(pattern)
     for hwnd, _t in hits:
@@ -93,10 +113,7 @@ def place_left(pattern: str) -> bool:
 def keep_place(pattern: str) -> bool:
     """실행 중 HRD-Net 창이 최대화되거나 자리를 벗어났으면 정해진 자리로 되돌린다 → 되돌렸는지.
     (창 크기가 바뀌면 버튼 이미지·학습 좌표가 어긋나서 단계마다 확인한다)"""
-    try:
-        user32.SetProcessDPIAware()
-    except Exception:  # noqa: BLE001
-        pass
+    _dpi_aware()
     r = saved_layout()["hrdnet"]
     fixed = False
     for hwnd, _t in windows(pattern):
@@ -136,21 +153,28 @@ def browser() -> str:
 _panel_lock = __import__("threading").Lock()
 
 
+def _bring_front(hwnd: int) -> None:
+    """패널을 맨 앞으로. 윈도우는 뒤에서 도는 프로그램이 창을 앞으로 가져오는 것을 막아서
+    (작업 표시줄만 깜빡이고 뒤에 숨는다) Alt 키를 한 번 눌렀다 떼어 허락을 받은 뒤 올린다."""
+    user32.keybd_event(0x12, 0, 0, 0)        # Alt 누름
+    user32.keybd_event(0x12, 0, 0x0002, 0)   # Alt 뗌
+    user32.ShowWindow(hwnd, 9)               # SW_RESTORE
+    user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)  # HWND_TOP, 크기·자리 그대로, 보이기
+    user32.SetForegroundWindow(hwnd)
+
+
 def open_panel(port: int) -> bool:
     """정해진 자리에 좁은 패널(앱 창). 전용 프로필이라 평소 브라우저와 섞이지 않는다.
     이미 떠 있으면 새로 띄우지 않는다 — 여러 버튼이 동시에 불러도 하나만(잠금)."""
     with _panel_lock:
-        try:
-            user32.SetProcessDPIAware()
-        except Exception:  # noqa: BLE001
-            pass
+        _dpi_aware()
         r = saved_layout()["panel"]
         found = windows(PANEL_TITLE)
         if found:
             for hwnd, _t in found[1:]:        # 예전에 여러 개 떠 버린 것은 닫는다
                 user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
             _move(found[0][0], r)
-            user32.SetForegroundWindow(found[0][0])
+            _bring_front(found[0][0])
             return True
         exe = browser()
         if not exe:
@@ -171,6 +195,9 @@ def open_panel(port: int) -> bool:
             found = windows(PANEL_TITLE)
             if found:
                 _move(found[0][0], r)
+                time.sleep(0.8)              # 막 뜬 Chrome 이 배율에 맞춰 크기를 고친 뒤 한 번 더 맞춘다
+                _move(found[0][0], r)
+                _bring_front(found[0][0])
                 break
         return True
 

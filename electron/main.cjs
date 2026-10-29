@@ -201,8 +201,42 @@ ipcMain.handle('rpa:launch', () => {
   return launching;
 });
 
+// rpa/hrdnet/web/server.py ENGINE_VERSION 과 같아야 한다 — 다르면 떠 있는 예전 엔진을 끄고 새로 켠다
+const RPA_ENGINE_VERSION = '2026-10-29.3';
+
+// 8820 포트를 잡고 있는 엔진 프로세스를 끈다 (예전 엔진에는 끄는 API 가 없어서 포트로 찾는다)
+function stopOldEngine() {
+  return new Promise((resolve) => {
+    const netstat = spawn('netstat', ['-ano', '-p', 'TCP'], {windowsHide: true});
+    let text = '';
+    netstat.stdout.on('data', (chunk) => { text += chunk; });
+    netstat.on('close', () => {
+      const pids = new Set();
+      text.split(/\r?\n/).forEach((line) => {
+        const cols = line.trim().split(/\s+/);
+        // 대기(LISTENING) 줄: 상대 주소가 0.0.0.0:0 / [::]:0 (한국어 윈도우는 상태 글자가 한글일 수 있어 주소로 본다)
+        const listening = cols[3] === 'LISTENING' || /^(0\.0\.0\.0|\[::\]):0$/.test(cols[2] || '');
+        if (cols.length >= 5 && cols[1].endsWith(`:${RPA_PORT}`) && listening && cols[4] !== '0') pids.add(cols[4]);
+      });
+      if (pids.size === 0) return resolve(false);
+      let left = pids.size;
+      pids.forEach((pid) => {
+        spawn('taskkill', ['/PID', pid, '/T', '/F'], {windowsHide: true}).on('close', () => {
+          left -= 1;
+          if (left === 0) setTimeout(() => resolve(true), 1500);
+        });
+      });
+    });
+    netstat.on('error', () => resolve(false));
+  });
+}
+
 async function launchRpa() {
   const dir = rpaDir();
+  const current = await rpaCall('GET', '/api/state', '', 3000);
+  if (current.ok && current.data?.engine !== RPA_ENGINE_VERSION) {
+    await stopOldEngine();   // 업데이트 전에 켜 둔 엔진 — 끄고 아래에서 새로 켠다
+  }
   if (!(await rpaRequest('GET', '/api/state'))) {
     const bat = path.join(dir, 'run.bat');
     if (!fsSync.existsSync(bat)) return {ok: false, reason: `rpa 폴더를 찾지 못했습니다: ${dir}`};
@@ -228,8 +262,8 @@ async function launchRpa() {
 }
 
 // ── 창 배치 ──────────────────────────────────────────────────────────────
-// 가로형 모니터가 2개 이상: 작업 모니터(local.json work_display, 기본 주 모니터)에 HRD-Net(왼쪽)+패널(오른쪽),
-//                         대시보드는 남는 모니터에 최대화.
+// 모니터가 2개 이상: 가로형 작업 모니터(local.json work_display, 기본 주 모니터가 가로면 주 모니터)에
+//                   HRD-Net(왼쪽)+패널(오른쪽), 대시보드는 남는 모니터(세로형이어도)에 최대화.
 // 모니터 1개: 한 화면에 3개 — 왼쪽 약 65% HRD-Net, 오른쪽 위 패널(약 55%), 오른쪽 아래 대시보드(축소 보기).
 function rpaLocal() {
   try {
@@ -249,9 +283,10 @@ function planLayout() {
   const work = (Number.isInteger(wanted) && displays[wanted] && isLandscape(displays[wanted]))
     ? displays[wanted]
     : (isLandscape(primary) ? primary : landscape[0] || primary);
+  // 모니터가 2개 이상이면 듀얼 — 남는 모니터가 세로형이어도 대시보드는 그쪽에 둔다(세로 주모니터 + 가로 보조 구성)
   const mode = local.layout === 'single' || local.layout === 'dual'
     ? local.layout
-    : (landscape.length >= 2 ? 'dual' : 'single');
+    : (displays.length >= 2 && landscape.length >= 1 ? 'dual' : 'single');
   const other = displays.find((d) => d.id !== work.id && isLandscape(d))
     || displays.find((d) => d.id !== work.id);
   const a = work.workArea;   // DIP
