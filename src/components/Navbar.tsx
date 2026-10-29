@@ -52,7 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-lg text-slate-100 tracking-tight">수주 및 비용 통합 관리</span>
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-medium border border-blue-500/30">
-                  DATA 자동 매핑 v2.1.0
+                  DATA 자동 매핑 v2.2.0
                 </span>
               </div>
               <p className="text-xs text-slate-400">훈련내역 · 계산서 · 입금내역 자동 매칭 & 예외 감지</p>

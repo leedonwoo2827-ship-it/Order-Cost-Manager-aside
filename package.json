@@ -1,7 +1,7 @@
 {
   "name": "order-cost-manager",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "수주, 비용, 계산서 및 입금 내역 통합 관리 프로그램",
   "author": "UBION",
   "type": "module",
