@@ -129,7 +129,8 @@ def run(archive: bool = True) -> dict:
         folder.mkdir(parents=True, exist_ok=True)
         # 사람이 계산서·수납확인서를 넣을 빈 폴더: 증빙/<과정>_<N>회차/<업체명>/ — 넣으면 대시보드가 알아서 신청가능으로 바꾼다
         for business in m["사업장"]:
-            if business.get("사업장명") and not business.get("제외사유"):
+            # 입금 미확인·부분입금도 폴더는 만든다 — 나중에 입금되면 사람이 콤보로 신청가능으로 바꿔 바로 쓴다
+            if business.get("사업장명") and business.get("제외사유") != "비용신청 완료":
                 (d["증빙"] / folder.name / folder_name(business["사업장명"])).mkdir(parents=True, exist_ok=True)
         given = m.pop("_given")
         missing_evidence = []

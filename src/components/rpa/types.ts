@@ -86,5 +86,6 @@ export interface RpaMacros {
 }
 
 export const hasEvidence = (b: RpaBusiness) => Boolean(b.전자계산서 && b.수납확인서);
-export const selectable = (b: RpaBusiness) => b.상태 === '신청가능' && hasEvidence(b) && !b.제외사유;
+// 상태는 사람이 콤보로 정한다 — 대시보드 제외사유가 있어도 사람이 신청가능으로 바꾸면 고를 수 있다
+export const selectable = (b: RpaBusiness) => b.상태 === '신청가능' && hasEvidence(b);
 export const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('ko-KR')}원`;

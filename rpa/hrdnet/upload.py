@@ -522,7 +522,7 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
     businesses, left_out = [], []
     for b in _selected_businesses(manifest, companies):
         st = (saved.get(b["_key"]) or {}).get("상태", "")
-        if b.get("제외사유"):
+        if b.get("제외사유") and st != "신청가능":     # 사람이 콤보로 신청가능으로 바꾼 업체만 돌린다
             left_out.append(f"{b.get('사업장명')}({b['제외사유']})")
         elif b.get("사업장명", "") in missing_evidence:
             left_out.append(f"{b.get('사업장명')}(증빙 대기)")

@@ -184,7 +184,7 @@ ipcMain.handle('rpa:export', async (event, payload) => {
   // (폴더 이름 규칙은 rpa/hrdnet/organize.py folder_name 과 같다. 백업도 같은 회차 폴더 이름으로 옮긴다)
   const folders = new Set();
   for (const row of rows) {
-    if (row.excludeReason) continue;
+    if (row.excludeReason === '비용신청 완료') continue;   // 입금 미확인·부분입금은 나중에 쓸 수 있게 폴더를 만든다
     const round = String(row.round ?? '').replace(/회차$/, '').trim();
     const dir = path.join(inbox, '증빙', `${cleanName(row.course)}_${cleanName(round)}회차`, cleanName(row.company));
     if (!folders.has(dir) && cleanName(row.company)) {

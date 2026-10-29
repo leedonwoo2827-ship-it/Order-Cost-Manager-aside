@@ -60,9 +60,10 @@ export const CompanyTable: React.FC<CompanyTableProps> = ({ businesses, picked, 
         <tbody>
           {businesses.map((b, index) => {
             const can = selectable(b);
-            const why = b.제외사유 ? b.자동사유 : b.사유 || b.자동사유 || b.증빙확인;
+            const why = b.사유 || b.자동사유 || b.증빙확인;
+            const muted = b.제외사유 && b.상태 !== '신청가능';
             return (
-              <tr key={b.key} className={`border-t border-slate-100 ${openKey === b.key ? 'bg-amber-50' : ''} ${b.제외사유 ? 'text-slate-400' : ''}`}>
+              <tr key={b.key} className={`border-t border-slate-100 ${openKey === b.key ? 'bg-amber-50' : ''} ${muted ? 'text-slate-400' : ''}`}>
                 <td className="px-2 py-1.5">
                   <input type="checkbox" disabled={!can} checked={can && picked.has(b.key)} onChange={() => onToggle(b.key)}
                     title={can ? '이 업체를 실행 대상으로' : '신청가능이고 증빙 2개가 다 있어야 고를 수 있습니다'} />
@@ -77,16 +78,16 @@ export const CompanyTable: React.FC<CompanyTableProps> = ({ businesses, picked, 
                 )}
                 {!compact && <td className="px-2 py-1.5 text-right">{Number(b.훈련인원 || 0).toLocaleString('ko-KR')}명</td>}
                 <td className="px-2 py-1.5 text-right font-semibold">{formatMoney(b.신청금액)}</td>
-                {!compact && <td className="max-w-[12rem] truncate px-2 py-1.5">{b.제외사유 ? '-' : <EvidenceCell file={b.전자계산서} />}</td>}
-                {!compact && <td className="max-w-[12rem] truncate px-2 py-1.5">{b.제외사유 ? '-' : <EvidenceCell file={b.수납확인서} />}</td>}
+                {!compact && <td className="max-w-[12rem] truncate px-2 py-1.5">{muted ? '-' : <EvidenceCell file={b.전자계산서} />}</td>}
+                {!compact && <td className="max-w-[12rem] truncate px-2 py-1.5">{muted ? '-' : <EvidenceCell file={b.수납확인서} />}</td>}
                 <td className="px-2 py-1.5">
                   <div className="flex items-center gap-1">
                     <select value={b.상태} onChange={(e) => onState(b, e.target.value as CompanyState)}
                       className={`rounded border px-1 py-0.5 text-[11px] font-semibold ${stateColor[b.상태]}`}>
                       {COMPANY_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
-                    {b.제외사유
-                      ? <span className="rounded bg-slate-100 px-1 text-[10px] font-semibold text-slate-600" title="통합 DATA 시트에서 비용신청 대상이 아닌 행">제외 · {b.제외사유}</span>
+                    {muted
+                      ? <span className="rounded bg-slate-100 px-1 text-[10px] font-semibold text-slate-600" title="통합 DATA 시트에서 비용신청 대상이 아닌 행 — 상태는 콤보로 바꿀 수 있습니다">제외 · {b.제외사유}</span>
                       : !hasEvidence(b) && <span className="rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800">증빙 대기</span>}
                   </div>
                   {why && <div className="mt-0.5 max-w-[16rem] truncate text-[10px] text-slate-500" title={why}>{why}</div>}
