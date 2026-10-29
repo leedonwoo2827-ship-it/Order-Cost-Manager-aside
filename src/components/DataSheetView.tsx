@@ -267,7 +267,7 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
     const excluded = payload.rows.filter((r) => r.excludeReason).length;
     if (!window.confirm(`${rounds}개 회차(${payload.rows.length}행)를 HRD-Net 비용신청 탭으로 내보내고 사이드 패널을 엽니다.
 그중 ${excluded}행은 입금 미확인·부분입금·비용신청 완료라서 '불가'로 표시됩니다(업체 수는 대시보드와 같게 보입니다).
-증빙 폴더에 회차 > 업체 폴더가 만들어집니다. 업체 폴더마다 전자계산서·수납확인서 2개를 넣으면 비용신청 탭에서 '신청가능'이 됩니다.`)) return;
+증빙 폴더에 회차 > 업체 폴더가 대시보드 업체마다 하나씩 만들어집니다. 업체 폴더마다 전자계산서·수납확인서 2개를 넣으면 비용신청 탭에서 '신청가능'이 됩니다.`)) return;
     setClaimBusy(true);
     try {
       const exported = await window.rpa.exportClaims(payload);
@@ -275,7 +275,8 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
         onShowToast?.(exported.reason || '내보내기에 실패했습니다.', 'error');
         return;
       }
-      onShowToast?.(`내보냄: ${exported.rows}행 · 업체 폴더 ${exported.folders ?? 0}개 (${exported.evidenceRoot || exported.root}) — 계산서·수납확인서를 넣어 주세요`, 'success');
+      onShowToast?.(`내보냄: ${exported.rows}행 · 업체 폴더 ${exported.folders ?? 0}개 (${exported.evidenceRoot || exported.root}) — 계산서·수납확인서를 넣어 주세요`
+        + (exported.folderIssues ? ` · 폴더 수가 다른 회차 ${exported.folderIssues}개: 이유는 증빙 폴더의 _폴더확인.txt` : ''), 'success');
       const launched = await window.rpa.launch();
       if (!launched.ok) {
         onShowToast?.(launched.reason || '사이드 패널을 열지 못했습니다.', 'error');

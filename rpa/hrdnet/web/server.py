@@ -36,7 +36,7 @@ LOCAL_HOSTS = {"127.0.0.1", "::1"}
 UI_PORT = 0
 # 대시보드(electron/main.cjs RPA_ENGINE_VERSION)와 같아야 한다. 다르면 대시보드가 이 엔진을 끄고 새로 켠다
 # (엔진 창은 최소화로 떠 있어 사람이 찾아 닫기 어렵다). 엔진 코드를 바꾸면 양쪽을 같이 올린다.
-ENGINE_VERSION = "2026-10-29.4"
+ENGINE_VERSION = "2026-10-29.5"
 
 app = FastAPI(title="비용신청 공방")
 

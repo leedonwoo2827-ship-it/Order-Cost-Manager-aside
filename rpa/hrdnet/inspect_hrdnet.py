@@ -42,14 +42,14 @@ def _scores(scr, path) -> tuple[float, tuple[int, int], int]:
 
 
 def automation_check(shot_path=None) -> list[str]:
-    """v2.2.1 자동화가 지금 화면에서 무엇을 찾는지 — 누르거나 입력하지 않고 찾기만 한다.
+    """v2.2.2 자동화가 지금 화면에서 무엇을 찾는지 — 누르거나 입력하지 않고 찾기만 한다.
     HRD-Net 화면은 UIA·웹 구조로 보이지 않아(10/29 진단) 그림 찾기와 OCR(윈도우 내장 글자 읽기)로 판정한다.
     첫 화면에서는 메뉴검색 돋보기, 비용신청관리(위탁) 검색 목록에서는 기준 그림·[신청] 버튼·각 행의 회차 읽기를 본다.
     shot_path 를 주면 HRD-Net 창 화면을 저장한다 — 실제 화면으로 그림을 다시 다듬는 데 쓴다."""
     from . import macros, ocr
     from .upload import Screen
 
-    out = ["### 자동화 판정 (v2.2.1 — 찾기만 함, 누르지 않음)"]
+    out = ["### 자동화 판정 (v2.2.2 — 찾기만 함, 누르지 않음)"]
     try:
         mdir = macros.path()
         spec = macros.spec(mdir.name)
@@ -72,21 +72,32 @@ def automation_check(shot_path=None) -> list[str]:
         except Exception as exc:  # noqa: BLE001
             out.append(f"그림 {what:24} 확인 실패 ({type(exc).__name__})")
     steps = {s.get("id"): s for s in spec.get("steps", []) if isinstance(s, dict)}
+    box_seen = ""
     for sid in CHECK_STEPS:
         step = steps.get(sid) or {}
         hit = scr.find(dict(step.get("target") or {}, _sid=sid))
         out.append(f"단계 {sid:4} {step.get('say', '')[:24]!r}: {('자리 ' + str(hit[1])) if hit else '못 찾음'}")
         if hit and sid == "2-r":
-            out.append(f"      회차 칸에 지금 보이는 글자(OCR): {scr.read_box(hit[1], step.get('verify_crop') or [-21, -9, 22, 9])!r}")
+            x, y = hit[1]
+            l, t, r, b = step.get("verify_crop") or [-21, -9, 22, 9]
+            im = scr.grab(x + l, y + t, x + r, y + b)
+            box_seen = ocr.read_digits(im)
+            out.append(f"      회차 칸 글자 — 점글꼴: {box_seen or '못 읽음'!r}  (참고 윈도우OCR: {ocr.read_texts([im], 6, True)[0]!r})")
     claim = steps.get("3") or {}
     buttons = []
     for path, _o in scr._images(claim.get("button")):
         buttons = scr.match_all(path, 0.9)
     if buttons:
         l, t, r, b = claim.get("round_cell") or (-475, -36, -420, 6)
-        readings = ocr.read_numbers([scr.grab(x + l, y + t, x + r, y + b) for x, y in buttons])
-        out.append(f"목록 [신청] {len(buttons)}개 — 각 행 실시회차 읽기(OCR): " +
-                   ", ".join(f"{v or '?'}@{y}" for (x, y), v in zip(buttons, readings)))
+        cells = [scr.grab(x + l, y + t, x + r, y + b) for x, y in buttons]
+        readings = ocr.read_numbers(cells)
+        out.append(f"목록 [신청] {len(buttons)}개 — 각 행 실시회차 읽기(점글꼴 먼저): " +
+                   ", ".join(f"{v or '?'}@{y}" for (x, y), v in zip(buttons, readings)) +
+                   f"  (참고 윈도우OCR: {ocr.read_texts(cells, 6, True)})")
+        if box_seen:
+            hits = [v for v in readings if v == box_seen]
+            out.append(f"3단계 예상: {box_seen}회차 [신청] " +
+                       ("1개 → 자동으로 누름" if len(hits) == 1 else f"{len(hits)}개 → 멈춤(하나로 정하지 못함)"))
         out.append("※ 읽은 회차가 실제 화면과 다르면 알려 주세요 (3단계는 이 값이 맞아야 자동으로 누릅니다)")
     else:
         out.append("목록 [신청] 버튼: 없음 (검색 목록 화면이 아니거나 그림이 안 맞음)")

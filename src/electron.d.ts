@@ -10,7 +10,7 @@ declare global {
       call: (req: {method?: 'GET' | 'POST'; path: RpaApiPath; body?: unknown}) => Promise<{ok: boolean; status: number; data: any; error?: string}>;
     };
     rpa?: {
-      exportClaims: (payload: RpaExportPayload) => Promise<{saved: boolean; reason?: string; root?: string; csvPath?: string; rows?: number; folders?: number; evidenceRoot?: string}>;
+      exportClaims: (payload: RpaExportPayload) => Promise<{saved: boolean; reason?: string; root?: string; csvPath?: string; rows?: number; folders?: number; folderIssues?: number; folderCheck?: string; evidenceRoot?: string}>;
       launch: () => Promise<{ok: boolean; reason?: string; layout?: RpaLayoutInfo}>;
       layout: () => Promise<{ok: boolean; reason?: string; layout?: RpaLayoutInfo}>;
       onLayout: (callback: (info: RpaLayoutInfo) => void) => () => void;

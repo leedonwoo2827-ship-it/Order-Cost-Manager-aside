@@ -327,29 +327,40 @@ class Screen:
         send_keys(re.sub(r"([{}+^%~()])", r"{\1}", text), with_spaces=True, pause=0.02)
 
     def read_box(self, at: tuple[int, int], crop) -> str:
-        """입력한 칸을 OCR 로 다시 읽는다 — crop 은 누른 자리 기준 [왼, 위, 오른, 아래]."""
+        """입력한 칸을 다시 읽는다(점글꼴 표 먼저, 안 되면 OCR) — crop 은 누른 자리 기준 [왼, 위, 오른, 아래]."""
         from . import ocr
         x, y = at
         return ocr.read_numbers([self.grab(x + crop[0], y + crop[1], x + crop[2], y + crop[3])])[0]
 
     def round_buttons(self, rnd: str, step: dict) -> tuple[list, str, dict]:
         """목록에서 실시회차가 rnd 인 '신청대상' 행의 [신청] → (hit 목록, 판정 방법, 정보).
-        [신청] 버튼은 그림으로 모두 찾고(신청대상 행에만 있다), 각 버튼 행의 실시회차 칸을 OCR 로 읽는다.
-          · 읽은 회차가 rnd 인 버튼이 딱 하나 → 그것 ('ocr')
+        [신청] 버튼은 그림으로 모두 찾고(신청대상 행에만 있다), 각 버튼 행의 실시회차 칸을 읽는다(ocr.read_numbers: 점글꼴 표 먼저).
+          · 읽은 회차가 rnd 인 버튼이 딱 하나 → 그것 ('회차읽기')
           · 읽지 못했어도, 프로그램이 회차 칸에 rnd 를 넣은 것을 확인했고([2-r]) 목록에 [신청]이 하나뿐 → 그것 ('회차검색')
           · 그 밖에는 고르지 않는다 → 멈춤. 회차를 확인하지 못한 [신청]은 절대 누르지 않는다."""
         from . import ocr
-        buttons = []
-        for path, _offset in self._images(step.get("button")):
-            buttons = self.match_all(path, float(step.get("button_threshold", 0.9)))
-            if buttons:
+        # [검색] 뒤 목록이 늦게 뜰 수 있다 — 10/29 녹화: 바로 찾아서 [신청] 0개로 멈춤. 버튼이 보일 때까지 기다린다
+        buttons, end = [], time.time() + float(step.get("list_wait", 10))
+        while True:
+            for path, _offset in self._images(step.get("button")):
+                buttons = self.match_all(path, float(step.get("button_threshold", 0.9)))
+                if buttons:
+                    break
+            if buttons or time.time() >= end:
                 break
+            time.sleep(0.5)
         info: dict = {"신청버튼": len(buttons), "회차입력확인": self.round_typed == rnd}
         if not buttons:
             return [], "", info
-        # 처리상태가 '신청대상'인 행만 — 정상지급(직권반려) 행에도 [신청]이 있을 수 있다
+        # 처리상태가 '신청대상'인 행만 — 정상지급(직권반려) 행에도 [신청]이 있을 수 있다.
+        # 글자 그림(status_image)으로 먼저 보고, 그림이 없을 때만 OCR 로 읽는다
         sl, st, sr, sb = step.get("status_cell") or (-50, -44, 50, -10)
-        status = ocr.read_texts([self.grab(x + sl, y + st, x + sr, y + sb) for x, y in buttons])
+        cells = [self.grab(x + sl, y + st, x + sr, y + sb) for x, y in buttons]
+        shapes = self._images(step.get("status_image"))
+        if shapes:
+            status = ["신청대상" if _has_shape(c, shapes[0][0]) else "" for c in cells]
+        else:
+            status = ocr.read_texts(cells)
         info["처리상태"] = status
         targets = [i for i, s in enumerate(status) if "신청대상" in s]
         buttons = [buttons[i] for i in targets]
@@ -360,7 +371,7 @@ class Screen:
         info["읽은회차"] = readings
         picked = [i for i, v in enumerate(readings) if v == str(rnd)]
         if len(picked) == 1:
-            return [("image", buttons[picked[0]])], "ocr", info
+            return [("image", buttons[picked[0]])], "회차읽기", info
         if not picked and len(buttons) == 1 and self.round_typed == rnd:
             return [("image", buttons[0])], "회차검색", info
         return [], "", info
@@ -884,6 +895,19 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         _verify_amount(scr, step, vals, rec, hit)
 
     _after_click(scr, sid, vals, rec)
+
+
+def _has_shape(image, template_path: Path, threshold: float = 0.95) -> bool:
+    """칸 이미지에 글자 그림이 있는지 — 짙은 점만 남겨 비교한다(행 배경색이 선택·보통이어도 같게)."""
+    import cv2
+    import numpy as np
+
+    cell = (np.array(image.convert("L")) < 110).astype(np.uint8) * 255
+    shape = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
+    if shape is None or shape.shape[0] > cell.shape[0] or shape.shape[1] > cell.shape[1]:
+        return False
+    shape = (shape < 110).astype(np.uint8) * 255
+    return float(cv2.matchTemplate(cell, shape, cv2.TM_CCOEFF_NORMED).max()) >= threshold
 
 
 def _after_click(scr: Screen, sid: str, vals: dict, rec: dict) -> None:

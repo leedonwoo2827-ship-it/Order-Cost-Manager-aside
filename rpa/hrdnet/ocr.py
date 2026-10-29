@@ -40,10 +40,59 @@ def words(image, scale: int = SCALE) -> list[dict]:
     return found
 
 
+# HRD-Net 숫자는 안티앨리어싱 없는 5×9 점 글꼴이라 점 모양을 그대로 맞춰 읽는다 (10/29 담당자 PC 화면에서 뽑음).
+# 윈도우 OCR 은 이 글꼴의 9 를 3 으로 읽는다(10/29 진단: 회차 칸·목록 모두 19 → '13') — 그래서 숫자는 이 표가 먼저다.
+GLYPHS = {
+    "0": ".###.|#...#|#...#|#...#|#...#|#...#|#...#|#...#|.###.",
+    "1": ".#|##|.#|.#|.#|.#|.#|.#|.#",
+    "2": ".###.|#...#|#...#|....#|...#.|..#..|.#...|#....|#####",
+    "3": ".###.|#...#|....#|....#|.###.|....#|....#|#...#|.###.",
+    "4": "..##.|..##.|.#.#.|.#.#.|#..#.|#..#.|#####|...#.|...#.",
+    "5": "#####|#....|#....|####.|#...#|....#|....#|#...#|.###.",
+    "6": ".###.|#...#|#....|#....|####.|#...#|#...#|#...#|.###.",
+    "7": "#####|....#|...#.|...#.|...#.|..#..|..#..|..#..|..#..",
+    "8": ".###.|#...#|#...#|#...#|.###.|#...#|#...#|#...#|.###.",
+    "9": ".###.|#...#|#...#|#...#|.####|....#|....#|#...#|.###.",
+}
+_BY_SHAPE = {v: k for k, v in GLYPHS.items()}
+DARK = 110        # 글자(검정·짙은 회색)만 남긴다 — 표 줄(회색)·선택 행 배경은 이보다 밝다
+
+
+def read_digits(image) -> str:
+    """5×9 점 글꼴 숫자 칸 → 숫자 글자. 모르는 모양이 하나라도 있으면 ''(못 읽음 — 틀린 값보다 안전)."""
+    import numpy as np
+
+    dark = np.array(image.convert("L")) < DARK
+    cols = dark.any(axis=0)
+    out, x = "", 0
+    while x < len(cols):
+        if not cols[x]:
+            x += 1
+            continue
+        end = x
+        while end < len(cols) and cols[end]:
+            end += 1
+        g = dark[:, x:end]
+        rows = np.where(g.any(axis=1))[0]
+        g = g[rows.min():rows.max() + 1]
+        digit = _BY_SHAPE.get("|".join("".join("#" if v else "." for v in r) for r in g))
+        if digit is None:
+            return ""
+        out += digit
+        x = end
+    return out
+
+
 def read_numbers(images: list, scale: int = 6) -> list[str]:
     """작은 칸 이미지들(회차 칸 등)의 숫자 → 칸마다 글자('' = 못 읽음).
-    (영상 캡처로 시험하면 19 를 13 으로 읽은 적이 있다 — 그래서 3단계는 이 값 하나만 믿지 않는다)"""
-    return ["".join(ch for ch in t if ch.isdigit()) for t in read_texts(images, scale, binarize=True)]
+    점 글꼴 표(GLYPHS)로 먼저 읽고, 그걸로 못 읽은 칸만 윈도우 OCR 로 읽는다."""
+    out = [read_digits(im) for im in images]
+    rest = [i for i, v in enumerate(out) if not v]
+    if rest:
+        texts = read_texts([images[i] for i in rest], scale, binarize=True)
+        for i, t in zip(rest, texts):
+            out[i] = "".join(ch for ch in t if ch.isdigit())
+    return out
 
 
 def read_texts(images: list, scale: int = 3, binarize: bool = False) -> list[str]:

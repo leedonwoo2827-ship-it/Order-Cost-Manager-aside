@@ -182,18 +182,38 @@ ipcMain.handle('rpa:export', async (event, payload) => {
 
   // 증빙/<과정>_<N>회차/<업체명>/ 빈 폴더 — 사람이 전자계산서·수납확인서 2개를 넣으면 비용신청 탭에서 '신청가능'이 된다.
   // (폴더 이름 규칙은 rpa/hrdnet/organize.py folder_name 과 같다. 백업도 같은 회차 폴더 이름으로 옮긴다)
-  const folders = new Set();
+  // 비용신청 완료·입금 미확인 업체도 폴더를 만든다 — 폴더 수가 대시보드 업체 수와 같아야 헷갈리지 않는다(10/29 회신).
+  // 상태는 제외사유가 우선이라 빈 폴더가 있어도 신청 대상이 되지 않는다.
+  const evidenceRoot = path.join(inbox, '증빙');
+  const byRound = new Map();   // 회차 폴더 → {rows, names}
   for (const row of rows) {
-    if (row.excludeReason === '비용신청 완료') continue;   // 입금 미확인·부분입금은 나중에 쓸 수 있게 폴더를 만든다
     const round = String(row.round ?? '').replace(/회차$/, '').trim();
-    const dir = path.join(inbox, '증빙', `${cleanName(row.course)}_${cleanName(round)}회차`, cleanName(row.company));
-    if (!folders.has(dir) && cleanName(row.company)) {
-      folders.add(dir);
-      await fs.mkdir(dir, {recursive: true});
+    const roundDir = `${cleanName(row.course)}_${cleanName(round)}회차`;
+    const entry = byRound.get(roundDir) || {rows: 0, names: new Set()};
+    entry.rows += 1;
+    if (cleanName(row.company)) entry.names.add(cleanName(row.company));
+    byRound.set(roundDir, entry);
+  }
+  let folders = 0;
+  const report = [];       // 폴더 수가 대시보드 행 수와 다른 회차 — 이유를 적는다
+  for (const [roundDir, {rows: count, names}] of byRound) {
+    for (const name of names) {
+      await fs.mkdir(path.join(evidenceRoot, roundDir, name), {recursive: true});
+    }
+    folders += names.size;
+    const existing = (await fs.readdir(path.join(evidenceRoot, roundDir), {withFileTypes: true}))
+      .filter((e) => e.isDirectory()).map((e) => e.name);
+    const stale = existing.filter((n) => !names.has(n));   // 예전에 만든 폴더 — 파일이 들었을 수 있어 지우지 않는다
+    if (count !== names.size || stale.length) {
+      report.push(`${roundDir}: 대시보드 ${count}행 · 업체 폴더 ${existing.length}개`
+        + (count !== names.size ? ` · 같은 업체명 ${count - names.size}행은 폴더 하나로 합침` : '')
+        + (stale.length ? ` · 지금 목록에 없는 예전 폴더 ${stale.length}개(${stale.join(', ')})` : ''));
     }
   }
-  return {saved: true, root, csvPath, rows: rows.length, folders: folders.size,
-    evidenceRoot: path.join(inbox, '증빙')};
+  const checkPath = path.join(evidenceRoot, '_폴더확인.txt');
+  await fs.writeFile(checkPath, `\uFEFF${report.length ? report.join('\r\n') : '모든 회차: 업체 폴더 수 = 대시보드 업체 수'}\r\n`, 'utf8');
+  return {saved: true, root, csvPath, rows: rows.length, folders, folderIssues: report.length,
+    evidenceRoot, folderCheck: checkPath};
 });
 
 // rpa 엔진(8820)을 켜고 사이드 패널(오른쪽 좁은 창)을 연다. 로그인·인증서는 사람이 한다.
@@ -205,7 +225,7 @@ ipcMain.handle('rpa:launch', () => {
 });
 
 // rpa/hrdnet/web/server.py ENGINE_VERSION 과 같아야 한다 — 다르면 떠 있는 예전 엔진을 끄고 새로 켠다
-const RPA_ENGINE_VERSION = '2026-10-29.4';
+const RPA_ENGINE_VERSION = '2026-10-29.5';
 
 // 8820 포트를 잡고 있는 엔진 프로세스를 끈다 (예전 엔진에는 끄는 API 가 없어서 포트로 찾는다)
 function stopOldEngine() {
