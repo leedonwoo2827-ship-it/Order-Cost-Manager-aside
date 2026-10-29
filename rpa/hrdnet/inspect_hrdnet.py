@@ -2,7 +2,7 @@
 
 UIA 로 버튼·칸의 이름이 보이면 steps.yaml 에 uia target 을 채우고(빠르고 튼튼함),
 안 보이면 버튼 이미지를 templates/ 에 넣어 image target 을 쓴다.
-결과: logs/inspect_<시각>.txt  (개인정보가 화면에 있으면 이 파일에도 들어가므로 PC 밖으로 보내지 않는다)
+결과: logs/inspect_<시각>.txt + .png(HRD-Net 창 화면) — 훈련생 정보가 보이는 화면(비용등록 팝업)에서는 돌리지 않는다
 """
 from __future__ import annotations
 
@@ -13,6 +13,84 @@ from datetime import datetime
 from . import config
 
 KEY_BUTTONS = ["검색", "신청", "비용등록", "저장", "닫기", "고용보험확인", "훈련비용 신청", "첨부", "산출액"]
+CHECK_STEPS = ["2-a", "2-r", "2-c"]       # 검색화면 칸 — 지금 화면에서 찾기만 해 본다
+TEMPLATES = {                              # 그림 이름 → 무엇인지 (화면에 몇 개, 가장 비슷한 점수)
+    "menu_search_icon.png": "첫 화면 우측 상단 메뉴검색 돋보기",
+    "round_box_anchor.png": "검색화면 기준 그림(회색 칸 ▼)",
+    "learned/2-c_1.png": "[검색] 버튼",
+    "claim_button.png": "목록의 [신청] 버튼",
+}
+_JUMIN = re.compile(r"\d{6}\s*-\s*[0-9*]{1,7}")
+
+
+def _mask(line: str) -> str:
+    """진단 파일에 주민번호 모양이 들어가지 않게."""
+    return _JUMIN.sub("######-*******", line)
+
+
+def _scores(scr, path) -> tuple[float, tuple[int, int], int]:
+    """그림이 화면 어디에 얼마나 비슷하게 있는지 → (최고 점수, 위치, 0.85 이상 개수)."""
+    import cv2
+    import numpy as np
+
+    screen = cv2.cvtColor(np.array(scr.win.capture_as_image()), cv2.COLOR_RGB2GRAY)
+    template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    scores = cv2.matchTemplate(screen, template, cv2.TM_CCOEFF_NORMED)
+    _lo, best, _at0, at = cv2.minMaxLoc(scores)
+    rect = scr.win.rectangle()
+    return best, (rect.left + at[0] + template.shape[1] // 2, rect.top + at[1] + template.shape[0] // 2),         len(scr.match_all(path, 0.85))
+
+
+def automation_check(shot_path=None) -> list[str]:
+    """v2.2.1 자동화가 지금 화면에서 무엇을 찾는지 — 누르거나 입력하지 않고 찾기만 한다.
+    HRD-Net 화면은 UIA·웹 구조로 보이지 않아(10/29 진단) 그림 찾기와 OCR(윈도우 내장 글자 읽기)로 판정한다.
+    첫 화면에서는 메뉴검색 돋보기, 비용신청관리(위탁) 검색 목록에서는 기준 그림·[신청] 버튼·각 행의 회차 읽기를 본다.
+    shot_path 를 주면 HRD-Net 창 화면을 저장한다 — 실제 화면으로 그림을 다시 다듬는 데 쓴다."""
+    from . import macros, ocr
+    from .upload import Screen
+
+    out = ["### 자동화 판정 (v2.2.1 — 찾기만 함, 누르지 않음)"]
+    try:
+        mdir = macros.path()
+        spec = macros.spec(mdir.name)
+        scr = Screen(spec.get("window", ".*HRD.*"), False, config.load(), mdir)
+    except Exception as exc:  # noqa: BLE001
+        return out + [f"HRD-Net 창 열기 실패: {type(exc).__name__}: {exc}"]
+    rect = scr.win.rectangle()
+    out.append(f"HRD-Net 창 위치·크기: ({rect.left},{rect.top}) {rect.width()}×{rect.height()}  (영상 기준 1400×1030)")
+    if shot_path:
+        try:
+            scr.win.capture_as_image().save(shot_path)
+            out.append(f"화면 저장: {shot_path}")
+        except Exception as exc:  # noqa: BLE001
+            out.append(f"화면 저장 실패: {type(exc).__name__}")
+    for name, what in TEMPLATES.items():
+        path = mdir / "templates" / name
+        try:
+            best, at, n = _scores(scr, path)
+            out.append(f"그림 {what:24} 최고 {best:.2f} 위치 {at}  0.85이상 {n}개")
+        except Exception as exc:  # noqa: BLE001
+            out.append(f"그림 {what:24} 확인 실패 ({type(exc).__name__})")
+    steps = {s.get("id"): s for s in spec.get("steps", []) if isinstance(s, dict)}
+    for sid in CHECK_STEPS:
+        step = steps.get(sid) or {}
+        hit = scr.find(dict(step.get("target") or {}, _sid=sid))
+        out.append(f"단계 {sid:4} {step.get('say', '')[:24]!r}: {('자리 ' + str(hit[1])) if hit else '못 찾음'}")
+        if hit and sid == "2-r":
+            out.append(f"      회차 칸에 지금 보이는 글자(OCR): {scr.read_box(hit[1], step.get('verify_crop') or [-21, -9, 22, 9])!r}")
+    claim = steps.get("3") or {}
+    buttons = []
+    for path, _o in scr._images(claim.get("button")):
+        buttons = scr.match_all(path, 0.9)
+    if buttons:
+        l, t, r, b = claim.get("round_cell") or (-475, -36, -420, 6)
+        readings = ocr.read_numbers([scr.grab(x + l, y + t, x + r, y + b) for x, y in buttons])
+        out.append(f"목록 [신청] {len(buttons)}개 — 각 행 실시회차 읽기(OCR): " +
+                   ", ".join(f"{v or '?'}@{y}" for (x, y), v in zip(buttons, readings)))
+        out.append("※ 읽은 회차가 실제 화면과 다르면 알려 주세요 (3단계는 이 값이 맞아야 자동으로 누릅니다)")
+    else:
+        out.append("목록 [신청] 버튼: 없음 (검색 목록 화면이 아니거나 그림이 안 맞음)")
+    return out
 
 
 def run() -> None:
@@ -111,5 +189,10 @@ def run() -> None:
         lines.append("")
         lines.append(f"### MSHTML DOM 접근 실패: {type(exc).__name__}: {exc}")
         print(f"MSHTML DOM 접근 실패: {type(exc).__name__}: {exc}")
-    out.write_text("\n".join(lines), encoding="utf-8")
+    try:
+        check = automation_check(out.with_suffix(".png"))
+    except Exception as exc:  # noqa: BLE001 — 판정이 실패해도 아래 원본 목록은 남긴다
+        check = ["### 자동화 판정 실패", f"{type(exc).__name__}: {exc}"]
+    print("\n".join(check))
+    out.write_text("\n".join(_mask(line) for line in [*check, "", *lines]), encoding="utf-8")
     print("자세한 목록:", out)

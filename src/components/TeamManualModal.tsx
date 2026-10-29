@@ -94,7 +94,7 @@ export const TeamManualModal: React.FC<TeamManualModalProps> = ({ isOpen, onClos
           <div className="border-b border-slate-200 pb-6">
             <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold mb-3">
               <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-              <span>업무 효율화 프로젝트 매뉴얼 (v2.2.0)</span>
+              <span>업무 효율화 프로젝트 매뉴얼 (v2.2.1)</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight">
               수주 및 비용 통합 관리 시스템 사용자 가이드

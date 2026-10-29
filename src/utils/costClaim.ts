@@ -1,8 +1,16 @@
 import {CompanyMapping, IntegratedDataRow, InvoiceRecord} from '../types';
-import {isReceiptEligible} from './receiptDocument';
+import {isPartialDeposit, isReceiptEligible} from './receiptDocument';
 
 // 수금이 확인됐고 아직 비용신청하지 않은 행 = HRD-Net 비용신청 대상
 export const isCostClaimTarget = (row: IntegratedDataRow) => isReceiptEligible(row) && !row.expenseApplied;
+
+// 대상이 아닌 행이 빠지는 이유 — 비용신청 탭에서 '불가'로 보여 대시보드와 업체 수가 맞게 한다
+export const costClaimExcludeReason = (row: IntegratedDataRow) => {
+  if (row.expenseApplied) return '비용신청 완료';
+  if (!(row.depositDate || '').trim()) return '입금 미확인';
+  if (isPartialDeposit(row)) return '부분입금';
+  return '';
+};
 
 const roundText = (value: number | string) => String(value ?? '').replace(/회차$/, '').trim();
 
@@ -36,13 +44,15 @@ export function businessNumberLookup(companyMappings: CompanyMapping[] = [], inv
   return (row: IntegratedDataRow) => byCode.get(String(row.customerCode || '').trim()) || byName.get(nameKey(row.companyName)) || '';
 }
 
-// 증빙(전자계산서·수납확인서)은 사람이 rpa 증빙 폴더의 회차/업체 폴더에 직접 넣는다 — 여기서는 대상 행만 내보낸다
+// 증빙(전자계산서·수납확인서)은 사람이 rpa 증빙 폴더의 회차/업체 폴더에 직접 넣는다.
+// 대상 행이 하나라도 있는 회차는 그 회차의 대시보드 행을 전부 보낸다 — 대상이 아닌 행은 제외사유를 달아서.
 export function buildCostClaimPayload(
   data: IntegratedDataRow[],
   findBusinessNumber: (row: IntegratedDataRow) => string = () => '',
 ): RpaExportPayload {
-  const targets = data.filter(isCostClaimTarget);
-  const rows = targets.map((row) => {
+  const rounds = new Set(data.filter(isCostClaimTarget).map((row) => roundKey(row.courseName, row.hrdRound)));
+  const inRounds = data.filter((row) => rounds.has(roundKey(row.courseName, row.hrdRound)));
+  const rows = inRounds.map((row) => {
     const {start, end} = splitPeriod(row.period);
     return {
       course: row.courseName.trim(),
@@ -53,6 +63,7 @@ export function buildCostClaimPayload(
       bizNo: findBusinessNumber(row),
       headcount: Number(row.headcount) || 0,
       amount: Number(row.govSubsidy) || 0,
+      excludeReason: isCostClaimTarget(row) ? '' : costClaimExcludeReason(row),
     };
   });
   return {rows, receipts: []};

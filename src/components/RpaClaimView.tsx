@@ -90,7 +90,7 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
   }, [byKey]);
 
   const matches = useCallback((b: RpaBusiness, r: RpaRound) => {
-    if (filter === '증빙대기' && hasEvidence(b)) return false;
+    if (filter === '증빙대기' && (hasEvidence(b) || b.제외사유)) return false;
     if (filter !== '전체' && filter !== '증빙대기' && b.상태 !== filter) return false;
     const q = query.trim();
     return !q || b.사업장명.includes(q) || b.사업장관리번호.includes(q) || r.과정명.includes(q) || `${r.회차}회차`.includes(q);
@@ -350,7 +350,7 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
               <th className="py-2">과정</th>
               <th className="py-2">회차</th>
               <th className="py-2">업체</th>
-              {!compact && <th className="py-2">신청가능 / 증빙대기</th>}
+              {!compact && <th className="py-2">신청가능 / 증빙대기 / 제외</th>}
               <th className="py-2">정리</th>
               <th className="py-2">올리기 결과</th>
             </tr>
@@ -385,7 +385,15 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
                         {on > 0 && <span className="ml-1 text-[10px] text-indigo-500">({on} 선택)</span>}
                       </button>
                     </td>
-                    {!compact && <td className="py-1.5"><b className="text-emerald-700">{r.신청가능}</b> / <span className="text-amber-700">{r.증빙대기}</span></td>}
+                    {!compact && (
+                      <td className="py-1.5" title={Object.entries(r.제외 || {}).map(([why, n]) => `${why} ${n}곳`).join(', ') || '제외 없음 — 통합 DATA 시트와 업체 수가 같습니다'}>
+                        <b className="text-emerald-700">{r.신청가능}</b> / <span className="text-amber-700">{r.증빙대기}</span>
+                        {' / '}<span className="text-slate-500">{Object.values(r.제외 || {}).reduce((a: number, n: number) => a + n, 0)}</span>
+                        {Object.keys(r.제외 || {}).length > 0 && (
+                          <span className="ml-1 text-[10px] text-slate-400">({Object.entries(r.제외 || {}).map(([why, n]) => `${why} ${n}`).join(' · ')})</span>
+                        )}
+                      </td>
+                    )}
                     <td className={`py-1.5 font-semibold ${r.정리 === '준비완료' ? 'text-emerald-700' : 'text-amber-600'}`}>{r.정리}</td>
                     <td className="py-1.5" title={r.오류}>{r.올리기}</td>
                   </tr>

@@ -173,6 +173,7 @@ class Screen:
         self.macro_dir = macro_dir
         self.title_re = title_re
         self.win = None
+        self.round_typed = ""     # [2-r] 회차 칸에 넣고 OCR 로 다시 읽어 확인한 회차
         if simulate:
             return
         from pywinauto import Desktop
@@ -227,34 +228,63 @@ class Screen:
                     return ("uia", el)
             except Exception:  # noqa: BLE001 — 같은 조건이 여러 개면 found_index 를 채운다
                 pass
-        img = target.get("image")
-        if img:
-            p = self.macro_dir / img
-            if not p.exists():
-                p = config.ROOT / img
-            if p.exists():
-                at = self._match(box, p)
-                if at:
-                    return ("image", at)
+        # image: "a.png" 또는 [{image, offset:[dx,dy]}, …] — offset 은 그림 가운데에서 얼마나 떨어진 곳을 누를지.
+        # HRD-Net 검색화면은 칸 배치가 고정이라, 늘 같은 모양인 기준 그림(회색 칸 ▼) 하나로 과정명·회차·검색 자리를 잡는다.
+        for img, offset in self._images(target.get("image")):
+            at = self._match(box, img)
+            if at:
+                return ("image", (at[0] + offset[0], at[1] + offset[1]))
         return self.learned(target.get("_sid", ""), target.get("learned", "template"), box)
+
+    def _images(self, value) -> list[tuple[Path, tuple[int, int]]]:
+        entries = value if isinstance(value, list) else [value] if value else []
+        out = []
+        for e in entries:
+            name, offset = (e.get("image", ""), e.get("offset") or (0, 0)) if isinstance(e, dict) else (e, (0, 0))
+            if not name:
+                continue
+            p = self.macro_dir / name
+            if not p.exists():
+                p = config.ROOT / name
+            if p.exists():
+                out.append((p, (int(offset[0]), int(offset[1]))))
+        return out
 
     def _match(self, box, template_path: Path):
         """창(또는 팝업) 화면에서 버튼 이미지를 찾는다 → 화면 좌표(x, y) | None"""
+        hits = self.match_all(template_path, float(self.cfg["image_confidence"]), box)
+        return hits[0] if hits else None
+
+    def match_all(self, template_path: Path, threshold: float = 0.9, box=None) -> list[tuple[int, int]]:
+        """화면에서 그림과 같은 곳을 모두 → 화면 좌표 목록(점수 높은 순). 겹친 자리는 하나로 친다."""
+        if self.simulate:
+            return []
         try:
             import cv2
             import numpy as np
 
+            box = box or self.win
             screen = cv2.cvtColor(np.array(box.capture_as_image()), cv2.COLOR_RGB2GRAY)
             template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
             if template is None or template.shape[0] > screen.shape[0] or template.shape[1] > screen.shape[1]:
-                return None
-            _lo, score, _at0, at = cv2.minMaxLoc(cv2.matchTemplate(screen, template, cv2.TM_CCOEFF_NORMED))
-            if score >= float(self.cfg["image_confidence"]):
-                rect = box.rectangle()
-                return rect.left + at[0] + template.shape[1] // 2, rect.top + at[1] + template.shape[0] // 2
+                return []
+            scores = cv2.matchTemplate(screen, template, cv2.TM_CCOEFF_NORMED)
+            ys, xs = np.where(scores >= threshold)
+            rect = box.rectangle()
+            th, tw = template.shape[:2]
+            keep: list[tuple[int, int]] = []
+            for _s, x, y in sorted(((float(scores[y, x]), int(x), int(y)) for y, x in zip(ys, xs)), reverse=True):
+                cx, cy = rect.left + x + tw // 2, rect.top + y + th // 2
+                if all(abs(cx - a) > tw // 2 or abs(cy - b) > th // 2 for a, b in keep):
+                    keep.append((cx, cy))
+            return keep
         except Exception:  # noqa: BLE001
-            pass
-        return None
+            return []
+
+    def grab(self, left: int, top: int, right: int, bottom: int):
+        """화면 좌표 영역 캡처 (PIL)."""
+        from PIL import ImageGrab
+        return ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
 
     def learned(self, sid: str, how: str, box):
         """학습 녹화(learned_actions.json) 재생 — 사람이 그 단계에서 누른 곳을 다시 누른다.
@@ -295,6 +325,78 @@ class Screen:
         from pywinauto.keyboard import send_keys
         send_keys("^a{BACKSPACE}", pause=0.02)
         send_keys(re.sub(r"([{}+^%~()])", r"{\1}", text), with_spaces=True, pause=0.02)
+
+    def read_box(self, at: tuple[int, int], crop) -> str:
+        """입력한 칸을 OCR 로 다시 읽는다 — crop 은 누른 자리 기준 [왼, 위, 오른, 아래]."""
+        from . import ocr
+        x, y = at
+        return ocr.read_numbers([self.grab(x + crop[0], y + crop[1], x + crop[2], y + crop[3])])[0]
+
+    def round_buttons(self, rnd: str, step: dict) -> tuple[list, str, dict]:
+        """목록에서 실시회차가 rnd 인 '신청대상' 행의 [신청] → (hit 목록, 판정 방법, 정보).
+        [신청] 버튼은 그림으로 모두 찾고(신청대상 행에만 있다), 각 버튼 행의 실시회차 칸을 OCR 로 읽는다.
+          · 읽은 회차가 rnd 인 버튼이 딱 하나 → 그것 ('ocr')
+          · 읽지 못했어도, 프로그램이 회차 칸에 rnd 를 넣은 것을 확인했고([2-r]) 목록에 [신청]이 하나뿐 → 그것 ('회차검색')
+          · 그 밖에는 고르지 않는다 → 멈춤. 회차를 확인하지 못한 [신청]은 절대 누르지 않는다."""
+        from . import ocr
+        buttons = []
+        for path, _offset in self._images(step.get("button")):
+            buttons = self.match_all(path, float(step.get("button_threshold", 0.9)))
+            if buttons:
+                break
+        info: dict = {"신청버튼": len(buttons), "회차입력확인": self.round_typed == rnd}
+        if not buttons:
+            return [], "", info
+        # 처리상태가 '신청대상'인 행만 — 정상지급(직권반려) 행에도 [신청]이 있을 수 있다
+        sl, st, sr, sb = step.get("status_cell") or (-50, -44, 50, -10)
+        status = ocr.read_texts([self.grab(x + sl, y + st, x + sr, y + sb) for x, y in buttons])
+        info["처리상태"] = status
+        targets = [i for i, s in enumerate(status) if "신청대상" in s]
+        buttons = [buttons[i] for i in targets]
+        if not buttons:
+            return [], "", info
+        l, t, r, b = step.get("round_cell") or (-475, -36, -420, 6)
+        readings = ocr.read_numbers([self.grab(x + l, y + t, x + r, y + b) for x, y in buttons])
+        info["읽은회차"] = readings
+        picked = [i for i, v in enumerate(readings) if v == str(rnd)]
+        if len(picked) == 1:
+            return [("image", buttons[picked[0]])], "ocr", info
+        if not picked and len(buttons) == 1 and self.round_typed == rnd:
+            return [("image", buttons[0])], "회차검색", info
+        return [], "", info
+
+    def menu_search(self, text: str, step: dict) -> str:
+        """우측 상단 메뉴검색 칸에 메뉴 이름 → 돋보기(안 되면 Enter) → 검색화면 기준 그림이 보이면 성공.
+        → '이미 열림' | 'image' | ''(실패)"""
+        from pywinauto.keyboard import send_keys
+        expect = self._images(step.get("expect_image"))
+
+        def opened(seconds: float) -> bool:
+            end = time.time() + seconds
+            while True:
+                if any(self._match(self.win, p) for p, _o in expect):
+                    return True
+                if time.time() >= end:
+                    return False
+                time.sleep(0.5)
+
+        if expect and opened(0):
+            return "이미 열림"
+        icon = None
+        for path, _offset in self._images(step.get("icon")):
+            icon = self._match(self.win, path)
+            if icon:
+                break
+        if not icon:
+            return ""
+        dx, dy = step.get("box_offset") or (-80, 0)
+        self.click(("image", (icon[0] + dx, icon[1] + dy)))     # 검색칸 글자 자리
+        self.type(text)
+        self.click(("image", icon))                              # 돋보기
+        if opened(8):
+            return "image"
+        send_keys("{ENTER}")
+        return "image" if opened(6) else ""
 
     def attach(self, path: str):
         """[첨부] 를 누른 뒤 뜨는 윈도우 '첨부파일' 열기 창에 전체 경로를 넣고 Enter.
@@ -420,7 +522,9 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
     businesses, left_out = [], []
     for b in _selected_businesses(manifest, companies):
         st = (saved.get(b["_key"]) or {}).get("상태", "")
-        if b.get("사업장명", "") in missing_evidence:
+        if b.get("제외사유"):
+            left_out.append(f"{b.get('사업장명')}({b['제외사유']})")
+        elif b.get("사업장명", "") in missing_evidence:
             left_out.append(f"{b.get('사업장명')}(증빙 대기)")
         elif st in ("신청완료", "불가"):
             left_out.append(f"{b.get('사업장명')}({st})")
@@ -533,6 +637,8 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
     summary["끝"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     alive = [x for x in keys if x not in skipped]
+    # 완료 반영은 업체 단위 — 이 회차에서 실제로 신청까지 간 업체만 (result.py → 완료처리대상 CSV 사업장명)
+    summary["신청업체"] = [b.get("사업장명", "") for b in businesses if b["_key"] not in skipped]
     status.record(alive, f05=summary["끝"], f08=summary["상태"], f09=summary["오류"][:200])
     if summary["상태"] == "성공":
         status.update([{"key": x, "상태": "신청완료"} for x in alive])
@@ -562,6 +668,8 @@ def _human(scr: Screen, step: dict, vals: dict, rec: dict, say: str, learn: bool
         extra = f"  입력값: {text_value} {then_value}"
         if sid == "2-a":
             copy_values.append({"label": "과정명", "value": text_value})
+        elif sid == "2-r":
+            copy_values.append({"label": "회차", "value": text_value})
         elif sid == "2-b":
             copy_values.append({"label": "검색 시작일", "value": text_value})
             if then_value:
@@ -645,6 +753,55 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         rec["result"] = "자동통과"
         return
 
+    days = step.get("only_if_older_than_days")
+    if days:
+        # 화면 기본 검색기간(최근 1년) 안에서 시작한 과정은 날짜를 건드리지 않는다 — 회차로 거르면 충분하다
+        try:
+            old = (datetime.now() - datetime.strptime(str(vals.get("검색시작", "")), "%Y-%m-%d")).days > int(days)
+        except ValueError:
+            old = False
+        if not old:
+            rec["result"] = "건너뜀(기본 검색기간 안)"
+            return
+
+    if act == "menu_search":
+        # 2: 우측 상단 메뉴검색으로 화면 이동 — 사람에게 넘기지 않는다. 못 하면 이유를 남기고 멈춘다
+        if check_only:
+            rec["result"] = "확인만"
+            return
+        how = scr.menu_search(_fmt(step.get("text", ""), vals), step)
+        if not how:
+            _stop_missing(scr, d, name, sid, summary, rec,
+                          f"{sid}: 우측 상단 메뉴검색 칸(돋보기)을 찾지 못했거나 「{step.get('text')}」 화면이 열리지 않았습니다")
+        rec["found"], rec["result"] = how, "자동"
+        summary["자동"] += 1
+        print(f"  {sid:6} {'자동 ' + how:10} {say}", flush=True)
+        time.sleep(float(scr.cfg["step_delay"]))
+        return
+
+    if act == "click_round_row":
+        # 3: 실시회차가 맞는 '신청대상' 행의 [신청]만 누른다. 하나로 정해지지 않으면 누르지 않고 멈춘다
+        if simulate:
+            rec["result"] = "확인만"
+            return
+        hits, how, info = scr.round_buttons(rnd, step)
+        rec["found"], rec["행찾기"] = how or None, info
+        if dry:
+            rec["result"] = "확인만"
+            print(f"  {sid:6} {f'{rnd}회차 {len(hits)}행':10} {say}  ({info})", flush=True)
+            return
+        if len(hits) != 1:
+            _stop_missing(scr, d, name, sid, summary, rec,
+                          f"{sid}: 목록에서 {rnd}회차 '신청대상' 행의 [신청]을 하나로 정하지 못했습니다 "
+                          f"([신청] {info.get('신청버튼', 0)}개, 읽은 회차 {info.get('읽은회차', [])}, "
+                          f"회차칸 입력확인 {'O' if info.get('회차입력확인') else 'X'}) — 잘못 누르지 않도록 멈춥니다")
+        scr.click(hits[0])
+        summary["자동"] += 1
+        rec["result"] = "자동"
+        print(f"  {sid:6} {'자동 ' + how:10} {say}", flush=True)
+        _after_click(scr, sid, vals, rec)
+        return
+
     if act == "attach" and not _fmt(step.get("file", ""), vals).strip("{}"):
         if step.get("optional"):
             rec["result"] = "건너뜀(파일 없음)"
@@ -663,6 +820,8 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
     if not hit and step.get("skip_if_missing") and not learn:
         rec["result"] = "건너뜀(요소 없음)"   # 화면 요소를 아직 못 잡은 보조 단계 — 사람에게 묻지 않는다
         return
+    if not hit and step.get("no_human") and not learn and not check_only:
+        _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 화면 요소를 찾지 못해 멈춥니다 — {say}")
     if not hit:
         summary["못찾음"].append(sid)
         if not check_only and not learn:
@@ -686,6 +845,13 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         scr.click(hit)
         if act == "type":
             scr.type(_fmt(step.get("text", ""), vals))
+            if step.get("verify_crop") and hit[0] == "image":
+                # 넣은 값을 화면에서 다시 읽는다 (2-r: 3단계가 '회차검색'으로 판정할 근거)
+                time.sleep(0.3)
+                seen = scr.read_box(hit[1], step["verify_crop"])
+                rec["입력확인"] = seen
+                if sid == "2-r" and seen == str(rnd):
+                    scr.round_typed = str(rnd)
             if step.get("then_text"):
                 second = scr.find(step.get("then_target")) if step.get("then_target") else None
                 if second:      # 시작일과 종료일 사이에 달력 아이콘이 있어 TAB 대신 칸을 직접 누른다
@@ -717,6 +883,11 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
     if act == "click" and step.get("verify_amount") and rec.get("result") == "자동":
         _verify_amount(scr, step, vals, rec, hit)
 
+    _after_click(scr, sid, vals, rec)
+
+
+def _after_click(scr: Screen, sid: str, vals: dict, rec: dict) -> None:
+    """단계 뒤 잠깐 기다렸다가 HRD-Net 알림창에 오류 글자가 있으면 업체를 빼거나 회차를 멈춘다."""
     time.sleep(float(scr.cfg["step_delay"]))
     pop = scr.popup_text()
     if pop:
@@ -725,6 +896,15 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
             if vals.get("_key"):
                 raise SkipCompany(f"{sid} 뒤 알림: {pop[:120]}")
             raise Stop(f"{sid} 뒤 알림: {pop[:120]}")
+
+
+def _stop_missing(scr: Screen, d: dict, name: str, sid: str, summary: dict, rec: dict, why: str) -> None:
+    """사람에게 맡기지 않는 단계에서 화면 요소를 못 찾았을 때 — 화면을 찍어 두고 이 회차를 멈춘다."""
+    summary["못찾음"].append(sid)
+    shot = d["shots"] / f"{name}_{sid}_찾기실패.png"
+    scr.shot(shot)
+    rec["file"], rec["result"] = shot.name, "멈춤"
+    raise Stop(why)
 
 
 def _number_after(texts: list[str], company: str) -> str:

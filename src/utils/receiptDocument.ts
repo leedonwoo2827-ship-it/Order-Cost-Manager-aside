@@ -30,7 +30,7 @@ export const DEFAULT_RECEIPT_SETTINGS: ReceiptSettings = {
   stampDataUrl: defaultReceiptStampDataUrl,
 };
 
-const isPartialDeposit = (row: IntegratedDataRow) =>
+export const isPartialDeposit =(row: IntegratedDataRow) =>
   row.status === 'partial_deposit' || (row.note || '').includes('부분입금');
 
 export const isReceiptEligible = (row: IntegratedDataRow) =>

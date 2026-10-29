@@ -167,11 +167,13 @@ ipcMain.handle('rpa:export', async (event, payload) => {
   await fs.mkdir(inbox, {recursive: true});
 
   // 사업자번호: 엔진이 사업장관리번호(대개 사업자번호+0, 유한회사 제외)를 추정하는 데 쓴다
-  const header = ['과정명', '회차', '시작일', '종료일', '사업장명', '사업자번호', '훈련인원', '신청금액'];
+  // 제외사유: 같은 회차의 입금 미확인·부분입금·비용신청 완료 행 — 비용신청 탭에서 '불가'로만 보이고 돌리지 않는다
+  const header = ['과정명', '회차', '시작일', '종료일', '사업장명', '사업자번호', '훈련인원', '신청금액', '제외사유'];
   const lines = [header.join(',')];
   for (const row of rows) {
     lines.push(
-      [row.course, row.round, row.start, row.end, row.company, row.bizNo || '', row.headcount, row.amount].map(csvCell).join(','),
+      [row.course, row.round, row.start, row.end, row.company, row.bizNo || '', row.headcount, row.amount,
+        row.excludeReason || ''].map(csvCell).join(','),
     );
   }
   const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 12);
@@ -182,6 +184,7 @@ ipcMain.handle('rpa:export', async (event, payload) => {
   // (폴더 이름 규칙은 rpa/hrdnet/organize.py folder_name 과 같다. 백업도 같은 회차 폴더 이름으로 옮긴다)
   const folders = new Set();
   for (const row of rows) {
+    if (row.excludeReason) continue;
     const round = String(row.round ?? '').replace(/회차$/, '').trim();
     const dir = path.join(inbox, '증빙', `${cleanName(row.course)}_${cleanName(round)}회차`, cleanName(row.company));
     if (!folders.has(dir) && cleanName(row.company)) {
@@ -202,7 +205,7 @@ ipcMain.handle('rpa:launch', () => {
 });
 
 // rpa/hrdnet/web/server.py ENGINE_VERSION 과 같아야 한다 — 다르면 떠 있는 예전 엔진을 끄고 새로 켠다
-const RPA_ENGINE_VERSION = '2026-10-29.3';
+const RPA_ENGINE_VERSION = '2026-10-29.4';
 
 // 8820 포트를 잡고 있는 엔진 프로세스를 끈다 (예전 엔진에는 끄는 API 가 없어서 포트로 찾는다)
 function stopOldEngine() {
@@ -406,12 +409,36 @@ ipcMain.handle('rpa:completed', async () => {
   } catch {
     return {items: []};
   }
+  // \uB530\uC634\uD45C\uB85C \uAC10\uC2FC \uCE78(\uACFC\uC815\uBA85\uC5D0 \uC27C\uD45C \uB4F1)\uB3C4 \uC77D\uB294\uB2E4
+  const parseLine = (line) => {
+    const cells = [];
+    let cell = '';
+    let quoted = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (quoted) {
+        if (ch === '"' && line[i + 1] === '"') { cell += '"'; i += 1; }
+        else if (ch === '"') quoted = false;
+        else cell += ch;
+      } else if (ch === '"') quoted = true;
+      else if (ch === ',') { cells.push(cell); cell = ''; }
+      else cell += ch;
+    }
+    cells.push(cell);
+    return cells.map((c) => c.trim());
+  };
   const items = [];
   for (const name of names) {
     const text = (await fs.readFile(path.join(dir, name), 'utf8')).replace(/^\uFEFF/, '');
-    text.split(/\r?\n/).slice(1).forEach((line) => {
-      const [course, round] = line.split(',');
-      if (course && round) items.push({course: course.trim(), round: round.trim()});
+    const [head = '', ...lines] = text.split(/\r?\n/);
+    // \uC0AC\uC5C5\uC7A5\uBA85 \uC5F4\uC774 \uC788\uC73C\uBA74 \uC5C5\uCCB4 \uB2E8\uC704, \uC5C6\uC73C\uBA74(\uC608\uC804 \uD30C\uC77C) \uD68C\uCC28 \uB2E8\uC704\uB85C \uBC18\uC601\uD55C\uB2E4
+    const companyAt = parseLine(head).indexOf('\uC0AC\uC5C5\uC7A5\uBA85');
+    lines.forEach((line) => {
+      const cells = parseLine(line);
+      const [course, round] = cells;
+      if (!course || !round) return;
+      const company = companyAt >= 0 ? cells[companyAt] || '' : '';
+      items.push(company ? {course, round, company} : {course, round});
     });
   }
   return {items};

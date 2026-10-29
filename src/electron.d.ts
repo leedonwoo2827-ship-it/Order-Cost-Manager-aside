@@ -14,7 +14,7 @@ declare global {
       launch: () => Promise<{ok: boolean; reason?: string; layout?: RpaLayoutInfo}>;
       layout: () => Promise<{ok: boolean; reason?: string; layout?: RpaLayoutInfo}>;
       onLayout: (callback: (info: RpaLayoutInfo) => void) => () => void;
-      completed: () => Promise<{items: {course: string; round: string}[]}>;
+      completed: () => Promise<{items: {course: string; round: string; company?: string}[]}>;
       openResults: () => Promise<{ok: boolean; dir: string; error?: string}>;
       openBackup: () => Promise<{ok: boolean; dir: string; error?: string}>;
     };
@@ -30,7 +30,7 @@ declare global {
   }
 
   interface RpaExportPayload {
-    rows: {course: string; round: string; start: string; end: string; company: string; bizNo?: string; headcount: number; amount: number}[];
+    rows: {course: string; round: string; start: string; end: string; company: string; bizNo?: string; headcount: number; amount: number; excludeReason?: string}[];
     receipts: {course: string; round: string; fileName: string; html: string}[];
   }
 }

@@ -41,9 +41,11 @@ def run(day: str = "") -> None:
     done = d["결과"] / f"완료처리대상_{day}.csv"
     with open(done, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["과정명", "회차", "신청금액", "신청일시"])
+        # 업체 단위 — 대시보드 [완료 반영]이 이 업체 행만 체크한다. 사업장명이 빈 줄(예전 기록)은 회차 전체로 반영된다
+        w.writerow(["과정명", "회차", "신청금액", "신청일시", "사업장명"])
         for r in ok:
-            w.writerow([r["과정명"], r["회차"], r.get("신청금액", ""), r.get("끝", "")])
+            for company in r.get("신청업체") or [""]:
+                w.writerow([r["과정명"], r["회차"], r.get("신청금액", ""), r.get("끝", ""), company])
     by = {}
     for r in rows:
         by[r["상태"]] = by.get(r["상태"], 0) + 1

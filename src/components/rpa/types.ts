@@ -15,6 +15,7 @@ export interface RpaBusiness {
   전자계산서: string;
   수납확인서: string;
   증빙확인: string;
+  제외사유?: string;     // 대시보드에서 대상이 아닌 행(입금 미확인·부분입금·비용신청 완료) — 업체 수를 맞추려고 같이 온다
   상태: CompanyState;
   사유: string;
   자동사유: string;
@@ -30,6 +31,7 @@ export interface RpaRound {
   사업장내역: RpaBusiness[];
   신청가능: number;
   증빙대기: number;
+  제외?: Record<string, number>;   // 제외사유별 업체 수
   첨부: string[];
   정리: string;
   올리기: string;
@@ -84,5 +86,5 @@ export interface RpaMacros {
 }
 
 export const hasEvidence = (b: RpaBusiness) => Boolean(b.전자계산서 && b.수납확인서);
-export const selectable = (b: RpaBusiness) => b.상태 === '신청가능' && hasEvidence(b);
+export const selectable = (b: RpaBusiness) => b.상태 === '신청가능' && hasEvidence(b) && !b.제외사유;
 export const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('ko-KR')}원`;

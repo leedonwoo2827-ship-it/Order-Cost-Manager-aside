@@ -36,7 +36,7 @@ LOCAL_HOSTS = {"127.0.0.1", "::1"}
 UI_PORT = 0
 # 대시보드(electron/main.cjs RPA_ENGINE_VERSION)와 같아야 한다. 다르면 대시보드가 이 엔진을 끄고 새로 켠다
 # (엔진 창은 최소화로 떠 있어 사람이 찾아 닫기 어렵다). 엔진 코드를 바꾸면 양쪽을 같이 올린다.
-ENGINE_VERSION = "2026-10-29.3"
+ENGINE_VERSION = "2026-10-29.4"
 
 app = FastAPI(title="비용신청 공방")
 
@@ -203,13 +203,19 @@ def _rounds(d) -> list[dict]:
                 "전자계산서": inv.name if inv else "",
                 "수납확인서": rec.name if rec else "",
                 "증빙확인": f"업체 폴더에 PDF {n}개 (2개여야 함)" if n and n != 2 else "",
+                "제외사유": str(item.get("제외사유", "") or ""),
                 **st,
             })
         ready = sum(1 for b in businesses if b["상태"] == "신청가능")
-        waiting = sum(1 for b in businesses if not (b["전자계산서"] and b["수납확인서"]))
+        # 제외(입금 미확인 등)는 증빙을 기다리는 업체가 아니다
+        waiting = sum(1 for b in businesses if not b["제외사유"] and not (b["전자계산서"] and b["수납확인서"]))
+        excluded: dict[str, int] = {}
+        for b in businesses:
+            if b["제외사유"]:
+                excluded[b["제외사유"]] = excluded.get(b["제외사유"], 0) + 1
         out.append({"folder": folder, "과정명": course, "회차": rnd,
                     "사업장": len(businesses), "첨부": list(j.get("첨부", {})),
-                    "사업장내역": businesses, "신청가능": ready, "증빙대기": waiting,
+                    "사업장내역": businesses, "신청가능": ready, "증빙대기": waiting, "제외": excluded,
                     "신청금액": j.get("신청금액", 0), "훈련인원": j.get("훈련인원", 0),
                     "정리": "준비완료" if ready else ("증빙대기" if waiting else "대상없음"),
                     "정리일시": j.get("정리일시", ""), "올리기": up.get("상태") or "미실행", "모드": up.get("모드", ""),

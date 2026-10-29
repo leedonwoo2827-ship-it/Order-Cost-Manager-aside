@@ -120,6 +120,8 @@ def resolve_number(business: dict, known: dict | None = None) -> tuple[str, str]
 
 def default_state(business: dict, has_invoice: bool, has_receipt: bool) -> tuple[str, str]:
     """사람이 아직 안 고른 업체의 기본값. 필수가 비면 불가 + 이유(막지 않고 표시만)."""
+    if business.get("제외사유"):
+        return "불가", f"대시보드: {business['제외사유']}"
     why = []
     if not has_invoice:
         why.append("전자계산서 없음")
@@ -141,7 +143,8 @@ def merged(course: str, rnd: str, business: dict, has_invoice: bool, has_receipt
     k = key(course, rnd, business)
     rec = dict(_blank(), **data.get(k, {}))
     auto_state, auto_why = default_state(business, has_invoice, has_receipt)
-    if not rec["상태"]:
+    # 대시보드에서 빠진 업체(입금 미확인 등)는 사람이 전에 고른 값보다 대시보드가 우선 — 신청완료 기록만 그대로 둔다
+    if not rec["상태"] or (business.get("제외사유") and rec["상태"] != "신청완료"):
         rec["상태"] = auto_state
     rec["자동사유"] = auto_why
     rec["key"] = k

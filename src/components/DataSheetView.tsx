@@ -264,7 +264,9 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
       onShowToast?.('수금이 확인되고 비용신청 전인 회차가 없습니다.', 'info');
       return;
     }
-    if (!window.confirm(`${rounds}개 회차(${payload.rows.length}행)를 HRD-Net 비용신청 대상으로 내보내고 사이드 패널을 엽니다.
+    const excluded = payload.rows.filter((r) => r.excludeReason).length;
+    if (!window.confirm(`${rounds}개 회차(${payload.rows.length}행)를 HRD-Net 비용신청 탭으로 내보내고 사이드 패널을 엽니다.
+그중 ${excluded}행은 입금 미확인·부분입금·비용신청 완료라서 '불가'로 표시됩니다(업체 수는 대시보드와 같게 보입니다).
 증빙 폴더에 회차 > 업체 폴더가 만들어집니다. 업체 폴더마다 전자계산서·수납확인서 2개를 넣으면 비용신청 탭에서 '신청가능'이 됩니다.`)) return;
     setClaimBusy(true);
     try {
@@ -299,14 +301,18 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
     }
   };
 
-  // RPA가 만든 완료처리대상 → 비용신청여부 일괄 체크
+  // RPA가 만든 완료처리대상 → 비용신청여부 일괄 체크.
+  // 사업장명이 있으면 실제로 신청한 업체 행만, 없으면(예전 CSV) 회차 전체.
   const applyCompletedClaims = async () => {
     if (!window.rpa) return;
     const {items} = await window.rpa.completed();
-    const done = new Set(items.map((i) => roundKey(i.course, i.round)));
+    const company = (value: string) => value.replace(/주식회사|유한회사|\(주\)|㈜|\(유한\)|\(유\)/g, '').replace(/[^0-9A-Za-z가-힣]/g, '').toLowerCase();
+    const wholeRounds = new Set(items.filter((i) => !i.company).map((i) => roundKey(i.course, i.round)));
+    const companies = new Set(items.filter((i) => i.company).map((i) => `${roundKey(i.course, i.round)}__${company(i.company!)}`));
     let changed = 0;
     data.forEach((row) => {
-      if (!row.expenseApplied && done.has(roundKey(row.courseName, row.hrdRound))) {
+      const key = roundKey(row.courseName, row.hrdRound);
+      if (!row.expenseApplied && (wholeRounds.has(key) || companies.has(`${key}__${company(row.companyName)}`))) {
         onUpdateRow({...row, expenseApplied: true});
         changed += 1;
       }

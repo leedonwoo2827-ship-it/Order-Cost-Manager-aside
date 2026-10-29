@@ -116,7 +116,10 @@ def run(archive: bool = True) -> dict:
                 "원본": sh.name, "_given": {k: r.get(k, "") for k in config.EVIDENCE}})
             m["사업장"].append({"사업장명": r.get("사업장명", ""), "사업장관리번호": r.get("사업장관리번호", ""),
                                "사업자번호": r.get("사업자번호", ""),
-                               "훈련인원": r.get("훈련인원", 0), "신청금액": r.get("신청금액", 0)})
+                               "훈련인원": r.get("훈련인원", 0), "신청금액": r.get("신청금액", 0),
+                               "제외사유": r.get("제외사유", "")})
+            if r.get("제외사유"):
+                continue    # 대시보드 업체 수를 맞추려고 같이 온 행 — 신청 금액·인원에는 넣지 않는다
             m["신청금액"] += float(r.get("신청금액") or 0)
             m["훈련인원"] += int(float(r.get("훈련인원") or 0))
 
@@ -126,13 +129,15 @@ def run(archive: bool = True) -> dict:
         folder.mkdir(parents=True, exist_ok=True)
         # 사람이 계산서·수납확인서를 넣을 빈 폴더: 증빙/<과정>_<N>회차/<업체명>/ — 넣으면 대시보드가 알아서 신청가능으로 바꾼다
         for business in m["사업장"]:
-            if business.get("사업장명"):
+            if business.get("사업장명") and not business.get("제외사유"):
                 (d["증빙"] / folder.name / folder_name(business["사업장명"])).mkdir(parents=True, exist_ok=True)
         given = m.pop("_given")
         missing_evidence = []
         for kind in config.EVIDENCE:
             items = []
             for business in m["사업장"]:
+                if business.get("제외사유"):
+                    continue
                 company = business.get("사업장명", "")
                 row_given = given.get(kind, "") if len(m["사업장"]) == 1 else ""
                 src = _find_evidence(kind, rnd, course, row_given, pdfs, d["inbox"], [company])
@@ -155,12 +160,13 @@ def run(archive: bool = True) -> dict:
         # 빠진 업체는 대시보드에서 '불가'(사유: 증빙 없음)로 보이고 체크할 수 없다.
         missing_companies = sorted({x.rsplit(" - ", 1)[0] for x in missing_evidence})
         m["증빙누락업체"] = missing_companies
-        complete = len(m["사업장"]) - len(missing_companies)
+        excluded = [b for b in m["사업장"] if b.get("제외사유")]
+        complete = len(m["사업장"]) - len(excluded) - len(missing_companies)
         m["상태"] = "준비완료" if complete > 0 else "증빙누락"
         m["정리일시"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         (folder / "manifest.json").write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
         evidence_count = len(m["전자계산서목록"]) + len(m["수납확인서목록"])
-        made.append(f"{folder.name}  사업장 {len(m['사업장'])}곳  첨부 {evidence_count}개  {m['상태']}")
+        made.append(f"{folder.name}  사업장 {len(m['사업장'])}곳(제외 {len(excluded)})  첨부 {evidence_count}개  {m['상태']}")
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     report = d["outbox"] / f"_검증리포트_{stamp}.txt"
