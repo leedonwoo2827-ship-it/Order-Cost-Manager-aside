@@ -220,11 +220,16 @@ class Screen:
     # 비용등록 팝업은 HRD-Net 주 창 밖(화면 전체)으로 커지기도 해서 창이 아니라 화면을 캡처한다.
     SCALES = (1.0, 1.25, 1.5, 1.75, 2.0, 0.8)   # 다른 PC 의 화면 배율(100~200%) — 맞은 배율을 기억해 먼저 쓴다
 
-    @staticmethod
-    def windows_scale() -> int:
-        """Windows 디스플레이 배율(%) — 100 이 아니면 숫자 점글꼴·그림 모양이 달라져 4단계 업체 찾기가 안 된다."""
+    def windows_scale(self) -> int:
+        """HRD-Net 창이 떠 있는 모니터의 Windows 디스플레이 배율(%) — 100 이 아니면 숫자 점글꼴·그림 모양이 달라져
+        4단계 업체 찾기가 안 된다. 모니터마다 배율이 다를 수 있어(주 모니터 세로 100% + 가로 150% 등) 창 기준으로 본다."""
         try:
             import ctypes
+            from ctypes import wintypes
+            mon = ctypes.windll.user32.MonitorFromWindow(wintypes.HWND(self.win.handle), 2)   # 가장 가까운 모니터
+            x, y = wintypes.UINT(), wintypes.UINT()
+            if ctypes.windll.shcore.GetDpiForMonitor(mon, 0, ctypes.byref(x), ctypes.byref(y)) == 0:
+                return round(x.value * 100 / 96)
             return round(ctypes.windll.user32.GetDpiForSystem() * 100 / 96)
         except Exception:  # noqa: BLE001
             return 100
@@ -779,8 +784,8 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
         scr = Screen(spec.get("window", ".*HRD.*"), simulate, cfg, mdir)
         if not simulate and scr.windows_scale() != 100:
             summary["배율"] = scr.windows_scale()
-            print(f"  ⚠ Windows 디스플레이 배율이 {summary['배율']}% 입니다 — 100% 로 바꿔야 업체 관리번호를 읽을 수 있습니다"
-                  " (설정 > 디스플레이 > 배율)", flush=True)
+            print(f"  ⚠ HRD-Net 이 떠 있는 모니터의 배율이 {summary['배율']}% 입니다 — 100% 로 바꿔야 업체 관리번호를 읽을 수"
+                  " 있습니다 (설정 > 디스플레이 > 그 모니터 선택 > 배율)", flush=True)
         if tidy and not simulate:
             summary["정리"] = scr.tidy()
         for i, (step, vals) in enumerate(plan, start=1):

@@ -139,8 +139,8 @@ def _later_steps(scr, spec: dict) -> list[str]:
         out.append(f"산출액 총액 / 신청액 총액 그림: {'같음' if same else '다름'}")
     dlg = scr.dialog()
     out.append(f"확인창: {dlg[0] + ' 떠 있음 ' + str(dlg[1]) if dlg else '없음'}")
-    out.append(f"Windows 디스플레이 배율: {scr.windows_scale()}%" + ("" if scr.windows_scale() == 100 else
-               "  ⚠ 100% 로 바꿔 주세요 (설정 > 디스플레이 > 배율) — 다르면 관리번호 숫자를 못 읽어 업체가 '불가'로 빠집니다"))
+    out.append(f"HRD-Net 모니터의 Windows 배율: {scr.windows_scale()}%" + ("" if scr.windows_scale() == 100 else
+               "  ⚠ 그 모니터를 100% 로 바꿔 주세요 (설정 > 디스플레이 > 모니터 선택 > 배율) — 다르면 관리번호를 못 읽어 업체가 '불가'로 빠집니다"))
     out.append(f"그림 배율: {getattr(scr, 'scale', 1.0):.2f} (1.00 = 그림을 뜬 화면과 같은 크기)")
     return out
 
