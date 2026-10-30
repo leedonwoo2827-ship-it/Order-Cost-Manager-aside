@@ -303,9 +303,13 @@ function planLayout() {
   const landscape = displays.filter(isLandscape);
   const primary = screen.getPrimaryDisplay();
   const wanted = Number.parseInt(local.work_display, 10);
+  // 작업 모니터 고르기: 지정(work_display) → 가로 1900 이상(DIP)·배율 100% 인 가로 모니터(주 모니터 먼저) → 가장 넓은 가로 모니터.
+  // 주 모니터가 작고(1366·1600) 옆 모니터가 큰 PC 가 있어서, 주 모니터를 무조건 쓰지 않는다 — HRD-Net 1400 + 패널 520 이 들어가야 한다.
+  const fits = (d) => isLandscape(d) && d.workArea.width >= 1900 && d.scaleFactor === 1;
+  const widest = [...landscape].sort((x, y) => y.size.width * y.scaleFactor - x.size.width * x.scaleFactor)[0];
   const work = (Number.isInteger(wanted) && displays[wanted] && isLandscape(displays[wanted]))
     ? displays[wanted]
-    : (isLandscape(primary) ? primary : landscape[0] || primary);
+    : (fits(primary) ? primary : displays.find(fits) || widest || primary);
   // 모니터가 2개 이상이면 듀얼 — 남는 모니터가 세로형이어도 대시보드는 그쪽에 둔다(세로 주모니터 + 가로 보조 구성)
   const mode = local.layout === 'single' || local.layout === 'dual'
     ? local.layout
