@@ -27,16 +27,17 @@ from pydantic import BaseModel
 from .. import config, macros, status
 
 STATIC = Path(__file__).parent / "static"
-ALLOWED = {"sample", "fetch", "organize", "inspect", "hrdnet-open", "upload-all", "result", "backup"}
+ALLOWED = {"sample", "fetch", "organize", "inspect", "hrdnet-open", "upload-all", "result", "backup", "report"}
 NAMES = {"sample": "샘플 넣기", "fetch": "1 받기(다운로드 감시)", "organize": "2 정리", "inspect": "화면 진단",
-         "hrdnet-open": "HRD-Net 열기", "upload-all": "3 올리기", "result": "4 결과", "backup": "백업·정리"}
+         "hrdnet-open": "HRD-Net 열기", "upload-all": "3 올리기", "result": "4 결과", "backup": "백업·정리",
+         "report": "보낼 파일 만들기"}
 MODES = {"--simulate": "모의 실행", "--dry-run": "점검(찾기만)", "--fill": "미리 채워 보기", "--learn": "학습 미리채워 보기"}
-RUN_OPTIONS = ("--simulate", "--dry-run", "--fill", "--learn", "--only", "--include-test", "--macro", "--companies")
+RUN_OPTIONS = ("--simulate", "--dry-run", "--fill", "--learn", "--auto", "--only", "--include-test", "--macro", "--companies")
 LOCAL_HOSTS = {"127.0.0.1", "::1"}
 UI_PORT = 0
 # 대시보드(electron/main.cjs RPA_ENGINE_VERSION)와 같아야 한다. 다르면 대시보드가 이 엔진을 끄고 새로 켠다
 # (엔진 창은 최소화로 떠 있어 사람이 찾아 닫기 어렵다). 엔진 코드를 바꾸면 양쪽을 같이 올린다.
-ENGINE_VERSION = "2026-10-29.5"
+ENGINE_VERSION = "2026-10-30.1"
 
 app = FastAPI(title="비용신청 공방")
 

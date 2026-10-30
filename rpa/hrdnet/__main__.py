@@ -33,12 +33,15 @@ def _parser() -> argparse.ArgumentParser:
     upload_all.add_argument("--macro", default="", help="macro id under rpa/macros (default: local.json macro)")
     upload_all.add_argument("--companies", default="", help="JSON file with selected company status keys")
     upload_all.add_argument("--learn", action="store_true", help="with --fill: hand every step to a person and record clicks")
+    upload_all.add_argument("--auto", action="store_true", help="continuous run: do not ask per round (confirmed once on the dashboard)")
 
     result = sub.add_parser("result", help="create the result table")
     result.add_argument("day", nargs="?", default="", help="result date (optional)")
 
     backup = sub.add_parser("backup", help="back up completed rounds")
     backup.add_argument("--include-test", action="store_true", help="also back up test/fill results")
+
+    sub.add_parser("report", help="zip recent run logs, screenshots and the last screen check to send for support")
 
     sub.add_parser("has-viewer-password", help="check whether LAN viewer access is configured")
     password = sub.add_parser("viewer-password", help="set the LAN viewer password")
@@ -97,7 +100,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.companies:
             companies = set(json.loads(Path(args.companies).read_text(encoding="utf-8")))
         run_all(dry=args.dry_run, simulate=args.simulate, fill=args.fill or args.learn, only=only,
-                companies=companies, learn=args.learn)
+                companies=companies, learn=args.learn, auto=args.auto and not args.learn)
     elif args.command == "result":
         from .result import run
 
@@ -106,6 +109,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .backup import run
 
         run(include_test=args.include_test)
+    elif args.command == "report":
+        from .report import run
+
+        run()
     elif args.command == "has-viewer-password":
         return 0 if config.load().get("viewer_password") else 1
     elif args.command == "viewer-password":

@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { ReceiptExportModal } from './ReceiptExportModal';
 import { groupReceiptRows, isReceiptEligible } from '../utils/receiptDocument';
-import { buildCostClaimPayload, businessNumberLookup, isCostClaimTarget, roundKey } from '../utils/costClaim';
+import { buildCostClaimPayload, businessNumberLookup, isCostClaimTarget, roundKey, roundsWithoutTargets } from '../utils/costClaim';
 
 interface DataSheetViewProps {
   data: IntegratedDataRow[];
@@ -261,12 +261,22 @@ export const DataSheetView: React.FC<DataSheetViewProps> = ({
     const payload = buildCostClaimPayload(data, businessNumberLookup(companyMappings, invoices));
     const rounds = new Set(payload.rows.map((r) => `${r.course}__${r.round}`)).size;
     if (payload.rows.length === 0) {
-      onShowToast?.('수금이 확인되고 비용신청 전인 회차가 없습니다.', 'info');
+      const left = roundsWithoutTargets(data);
+      onShowToast?.('수금이 확인되고 비용신청 전인 회차가 없습니다.'
+        + (left.length ? ` (${left.slice(0, 5).map((r) => r.text).join(' · ')} — 입금일을 넣으면 넘어갑니다)` : ''), 'info');
       return;
     }
     const excluded = payload.rows.filter((r) => r.excludeReason).length;
+    // 대상 업체가 없는 회차도 '제외'로 함께 보낸다(12회차처럼 반쯤 신청한 회차) — 미리 알려 준다
+    const left = roundsWithoutTargets(data);
+    const leftText = left.length
+      ? `
+
+신청 대상 업체가 아직 없는 회차 ${left.length}개도 함께 보냅니다: ${left.slice(0, 8).map((r) => r.text).join(' · ')}${left.length > 8 ? ' …' : ''}
+→ 비용신청 탭에서 '제외'로 보입니다. 입금·납부가 확인된 업체는 상태 콤보를 '신청가능'으로 바꾸면 돌릴 수 있습니다.`
+      : '';
     if (!window.confirm(`${rounds}개 회차(${payload.rows.length}행)를 HRD-Net 비용신청 탭으로 내보내고 사이드 패널을 엽니다.
-그중 ${excluded}행은 입금 미확인·부분입금·비용신청 완료라서 '불가'로 표시됩니다(업체 수는 대시보드와 같게 보입니다).
+그중 ${excluded}행은 입금 미확인·부분입금·비용신청 완료라서 '불가'로 표시됩니다(업체 수는 대시보드와 같게 보입니다).${leftText}
 증빙 폴더에 회차 > 업체 폴더가 대시보드 업체마다 하나씩 만들어집니다. 업체 폴더마다 전자계산서·수납확인서 2개를 넣으면 비용신청 탭에서 '신청가능'이 됩니다.`)) return;
     setClaimBusy(true);
     try {

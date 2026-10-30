@@ -156,9 +156,11 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
       return;
     }
     if (mode.id === 'live' && !window.confirm(`${pickedRounds.length}개 회차 · ${picked.size}개 업체를 실제로 신청 진행합니다.
-회차마다 오른쪽 패널에서 최종 확인을 눌러야 신청됩니다.`)) return;
+회차마다 묻지 않고 끝까지 이어서 [훈련비용 신청]까지 누릅니다. 진행할까요?`)) return;
     const args = ['upload-all', `--only=${pickedRounds.join(',')}`, `--macro=${macros?.current ?? ''}`];
     if (mode.flag) args.push(mode.flag);
+    // 연속 실행 — 고른 회차를 회차마다 묻지 않고 끝까지 (멈춘 회차는 화면을 정리하고 다음 회차로)
+    if (mode.id === 'live' || mode.id === 'fill') args.push('--auto');
     void run(args, `${mode.label}을 시작했습니다. 오른쪽 패널을 보세요.`, [...picked]);
   };
 
@@ -308,6 +310,12 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
                 className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
                 title="오늘 실행한 기록을 결과표(엑셀)와 완료처리 대상(CSV)으로 만들고 폴더를 엽니다.">
                 4 결과표
+              </button>
+              <button type="button" onClick={() => void run(['report'], '보낼 파일(zip)을 만들었습니다. 열린 logs 폴더의 「보낼파일_…zip」을 메일에 첨부해 주세요.')}
+                disabled={offline || state?.busy}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                title="문제가 생기면: 최근 실행 기록·멈춘 화면·화면 진단을 zip 하나로 묶습니다.">
+                보낼 파일 만들기
               </button>
             </>
           )}

@@ -1,7 +1,7 @@
 """3 올리기 — 사람이 로그인해 둔 HRD-Net 설치 프로그램에 매크로(rpa/macros/<id>/steps.yaml) 순서대로 입력한다.
 
-화면 요소를 찾는 순서: UIA(pywinauto) → 화면 이미지(cv2) → 사람 안내(답을 기다림).
-그래서 selector 를 하나도 안 채운 지금도 "단계별 안내 + 기록" 도구로 돈다. 채울수록 자동이 된다.
+화면 요소를 찾는 순서: UIA(pywinauto) → 화면 이미지(cv2). 못 찾으면 화면을 찍고 멈추거나(업체 문제면) 그 업체만 불가로 뺀다.
+v2.2.3 부터 사람에게 클릭을 넘기지 않는다 — 학습 모드(--learn)만 사람이 누르고 그 클릭을 녹화한다.
 
 모드
   기본       실제로 클릭·입력한다. confirm 단계(최종 신청)는 사람이 [신청]을 눌러야 진행
@@ -198,12 +198,12 @@ class Screen:
             return False
 
     def scope(self, title: str | None):
-        """팝업 창 제목으로 찾는 범위를 좁힌다 — 같은 이름 버튼(비용등록·저장·닫기)이 여러 개라서."""
+        """팝업 창 제목으로 찾는 범위를 좁힌다(UIA) — HRD-Net 팝업은 Window 가 아니라 Pane 으로 보인다(10/30 진단)."""
         if self.simulate:
             return None
         if not title:
             return self.win
-        for where in (lambda: self.win.child_window(title_re=title, control_type="Window"),
+        for where in (lambda: self.win.child_window(title_re=title),
                       lambda: self.desk.window(title_re=title)):
             try:
                 w = where()
@@ -213,28 +213,99 @@ class Screen:
                 continue
         return None
 
+    # ── 화면 그림 찾기 ─────────────────────────────────────────────────
+    # HRD-Net 은 UIA·DOM 으로 버튼이 안 보여(10/29·10/30 진단) 화면 그림이 유일한 수단이다.
+    # 오탐을 막는 규칙: 점수 ≥ image_confidence, 정해진 영역 안에서 '딱 1곳'(unique)일 때만 누른다.
+    # 영역은 늘 같은 모양인 기준 그림(팝업 제목줄 등 — scope_image)에서 떨어진 거리로 정한다.
+    # 비용등록 팝업은 HRD-Net 주 창 밖(화면 전체)으로 커지기도 해서 창이 아니라 화면을 캡처한다.
+    SCALES = (1.0, 1.25, 1.5, 1.75, 2.0, 0.8)   # 다른 PC 의 화면 배율(100~200%) — 맞은 배율을 기억해 먼저 쓴다
+
+    @staticmethod
+    def windows_scale() -> int:
+        """Windows 디스플레이 배율(%) — 100 이 아니면 숫자 점글꼴·그림 모양이 달라져 4단계 업체 찾기가 안 된다."""
+        try:
+            import ctypes
+            return round(ctypes.windll.user32.GetDpiForSystem() * 100 / 96)
+        except Exception:  # noqa: BLE001
+            return 100
+
+    def screen_rect(self) -> tuple[int, int, int, int]:
+        import ctypes
+        u = ctypes.windll.user32
+        left, top = u.GetSystemMetrics(76), u.GetSystemMetrics(77)
+        return left, top, left + u.GetSystemMetrics(78), top + u.GetSystemMetrics(79)
+
+    def _region(self, box) -> tuple[int, int, int, int]:
+        """box: None(주 창) | 'screen' | (l, t, r, b) 화면 좌표 | pywinauto 요소 → 화면 안으로 자른 영역."""
+        sl, st, sr, sb = self.screen_rect()
+        if box == "screen":
+            return sl, st, sr, sb
+        if isinstance(box, tuple):
+            l, t, r, b = box
+        else:
+            rect = (box or self.win).rectangle()
+            l, t, r, b = rect.left, rect.top, rect.right, rect.bottom
+        return max(l, sl), max(t, st), min(r, sr), min(b, sb)
+
+    def px(self, v) -> int:
+        """기준 화면(100%)에서 잰 거리 → 이 PC 배율의 거리."""
+        return int(round(float(v) * getattr(self, "scale", 1.0)))
+
+    def _find_region(self, target: dict):
+        """target.scope_image {image, box:[l,t,r,b]} → (영역, 기준점) | (None, None)=기준 그림 없음 | ('', None)=지정 없음."""
+        si = target.get("scope_image")
+        if not si:
+            return "", None
+        imgs = self._images(si.get("image"))
+        if not imgs:
+            return None, None
+        hits = self.match_all(imgs[0][0], float(si.get("threshold", self.cfg["image_confidence"])), "screen")
+        if len(hits) != 1:
+            return None, None
+        ax, ay = hits[0]
+        l, t, r, b = (self.px(v) for v in si.get("box") or (-2000, -2000, 2000, 2000))
+        return self._region((ax + l, ay + t, ax + r, ay + b)), (ax, ay)
+
     def find(self, target: dict | None):
-        """→ ('uia', 요소) | ('image', (x, y)) | None"""
+        """→ ('uia', 요소) | ('image', (x, y)) | None.  target.wait 초 동안 다시 찾는다(화면이 늦게 뜰 때)."""
         if self.simulate or not target:
             return None
-        box = self.scope(target.get("scope"))
-        if box is None:
-            return None
+        end = time.time() + float(target.get("wait", 0))
+        while True:
+            hit = self._find_once(target)
+            if hit or time.time() >= end:
+                return hit
+            time.sleep(0.5)
+
+    def _find_once(self, target: dict):
         uia = {k: v for k, v in (target.get("uia") or {}).items() if v not in (None, "")}
         if uia:
-            try:
-                el = box.child_window(**uia)
-                if el.exists(timeout=2):
-                    return ("uia", el)
-            except Exception:  # noqa: BLE001 — 같은 조건이 여러 개면 found_index 를 채운다
-                pass
-        # image: "a.png" 또는 [{image, offset:[dx,dy]}, …] — offset 은 그림 가운데에서 얼마나 떨어진 곳을 누를지.
-        # HRD-Net 검색화면은 칸 배치가 고정이라, 늘 같은 모양인 기준 그림(회색 칸 ▼) 하나로 과정명·회차·검색 자리를 잡는다.
-        for img, offset in self._images(target.get("image")):
-            at = self._match(box, img)
-            if at:
-                return ("image", (at[0] + offset[0], at[1] + offset[1]))
-        return self.learned(target.get("_sid", ""), target.get("learned", "template"), box)
+            box = self.scope(target.get("scope"))
+            if box is not None:
+                try:
+                    el = box.child_window(**uia)
+                    if el.exists(timeout=1):
+                        return ("uia", el)
+                except Exception:  # noqa: BLE001 — 같은 조건이 여러 개면 found_index 를 채운다
+                    pass
+        region, anchor = self._find_region(target)
+        if region is None:
+            return None
+        where = region or ("screen" if target.get("scope") else None)
+        unique = bool(target.get("unique"))
+        # image: "a.png" 또는 [{image, offset:[dx,dy]} | {at:[dx,dy]}, …] — offset 은 그림 가운데에서 얼마나 떨어진 곳을 누를지,
+        # at 은 scope_image 기준점에서 떨어진 곳. HRD-Net 화면은 칸 배치가 고정이라 기준 그림 하나로 자리를 잡는다.
+        entries = target.get("image")
+        for e in entries if isinstance(entries, list) else [entries] if entries else []:
+            if isinstance(e, dict) and "at" in e and anchor:
+                return ("image", (anchor[0] + self.px(e["at"][0]), anchor[1] + self.px(e["at"][1])))
+        for img, offset in self._images(entries):
+            hits = self.match_all(img, float(target.get("threshold", self.cfg["image_confidence"])), where)
+            if unique and len(hits) != 1:
+                continue
+            if hits:
+                return ("image", (hits[0][0] + self.px(offset[0]), hits[0][1] + self.px(offset[1])))
+        return self.learned(target.get("_sid", ""), target.get("learned", "template"), self.win)
 
     def _images(self, value) -> list[tuple[Path, tuple[int, int]]]:
         entries = value if isinstance(value, list) else [value] if value else []
@@ -263,21 +334,32 @@ class Screen:
             import cv2
             import numpy as np
 
-            box = box or self.win
-            screen = cv2.cvtColor(np.array(box.capture_as_image()), cv2.COLOR_RGB2GRAY)
-            template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
-            if template is None or template.shape[0] > screen.shape[0] or template.shape[1] > screen.shape[1]:
+            l, t, r, b = self._region(box)
+            if r - l < 4 or b - t < 4:
                 return []
-            scores = cv2.matchTemplate(screen, template, cv2.TM_CCOEFF_NORMED)
-            ys, xs = np.where(scores >= threshold)
-            rect = box.rectangle()
-            th, tw = template.shape[:2]
-            keep: list[tuple[int, int]] = []
-            for _s, x, y in sorted(((float(scores[y, x]), int(x), int(y)) for y, x in zip(ys, xs)), reverse=True):
-                cx, cy = rect.left + x + tw // 2, rect.top + y + th // 2
-                if all(abs(cx - a) > tw // 2 or abs(cy - b) > th // 2 for a, b in keep):
-                    keep.append((cx, cy))
-            return keep
+            screen = cv2.cvtColor(np.array(self.grab(l, t, r, b).convert("RGB")), cv2.COLOR_RGB2GRAY)
+            base = cv2.imdecode(np.fromfile(str(template_path), np.uint8), cv2.IMREAD_GRAYSCALE)
+            if base is None:
+                return []
+            first = getattr(self, "scale", 1.0)
+            for s in (first, *[v for v in self.SCALES if v != first]):
+                template = base if s == 1.0 else cv2.resize(
+                    base, None, fx=s, fy=s, interpolation=cv2.INTER_LINEAR if s > 1 else cv2.INTER_AREA)
+                if template.shape[0] > screen.shape[0] or template.shape[1] > screen.shape[1]:
+                    continue
+                scores = cv2.matchTemplate(screen, template, cv2.TM_CCOEFF_NORMED)
+                ys, xs = np.where(scores >= threshold)
+                if not len(xs):
+                    continue
+                th, tw = template.shape[:2]
+                keep: list[tuple[int, int]] = []
+                for _s, x, y in sorted(((float(scores[y, x]), int(x), int(y)) for y, x in zip(ys, xs)), reverse=True):
+                    cx, cy = l + x + tw // 2, t + y + th // 2
+                    if all(abs(cx - a) > tw // 2 or abs(cy - b2) > th // 2 for a, b2 in keep):
+                        keep.append((cx, cy))
+                self.scale = s
+                return keep
+            return []
         except Exception:  # noqa: BLE001
             return []
 
@@ -438,40 +520,159 @@ class Screen:
         send_keys("{ENTER}")
         dlg.wait_not("exists", timeout=15)
 
-    def texts(self, scope: str | None = None) -> list[str]:
-        """창(또는 팝업) 안의 글자들. UIA 로 안 보이면 빈 목록 → 검증은 '확인못함'으로 넘어간다."""
-        if self.simulate:
-            return []
-        box = self.scope(scope)
-        if box is None:
-            return []
-        out = []
-        try:
-            for c in box.descendants():
-                t = (c.window_text() or "").strip()
-                if t:
-                    out.append(t)
-        except Exception:  # noqa: BLE001
-            pass
-        return out
+    # HRD-Net 확인창 — UIA 로 안 보여서 제목줄 그림으로 찾는다 (10/30 녹화에서 잘라 냄).
+    # (이름, 제목줄 그림, [확인] 그림, 제목줄 기준 글자 영역)
+    DIALOGS = (
+        ("Confirm", "templates/dlg_confirm_title.png", "templates/btn_dlg_ok_confirm.png", (-40, 35, 260, 95)),
+        ("알림", "templates/dlg_alert_title.png", "templates/btn_dlg_ok_alert.png", (-40, 35, 440, 140)),
+    )
+
+    def dialog(self):
+        """떠 있는 확인창 → (이름, 제목줄 자리, [확인] 그림) | None"""
+        for kind, title, ok, text_box in self.DIALOGS:
+            imgs = self._images(title)
+            if imgs:
+                hits = self.match_all(imgs[0][0], 0.85, "screen")
+                if len(hits) == 1:
+                    return kind, hits[0], ok, text_box
+        return None
 
     def alert(self, timeout: float = 4.0) -> tuple[str, bool]:
-        """'알림' 창을 기다렸다가 글자를 읽고 [확인]을 누른다 → (글자, 찾았는지)."""
+        """확인창(Confirm '저장하시겠습니까?' → 알림 '저장되었습니다' 처럼 이어서 뜰 수 있다)을 기다렸다가
+        글자를 읽고 [확인]을 누른다 → (글자, 찾았는지). [확인]을 눌러도 안 닫히면 멈춘다(저장이 안 된 채 넘어가지 않게)."""
         if self.simulate:
             return "", False
+        from . import ocr
+        texts: list[str] = []
         end = time.time() + timeout
-        while time.time() < end:
-            box = self.scope("알림")
-            if box is not None:
-                text = " ".join(self.texts("알림"))[:500]
-                try:
-                    box.child_window(title_re="확인", control_type="Button").click_input()
-                except Exception:  # noqa: BLE001
-                    from pywinauto.keyboard import send_keys
-                    send_keys("{ENTER}")
-                return text, True
-            time.sleep(0.3)
-        return "", False
+        while time.time() < end and len(texts) < 3:
+            dlg = self.dialog()
+            if not dlg:
+                if texts:       # 하나를 닫았으면 이어서 뜨는 창만 잠깐 더 본다
+                    end = min(end, time.time() + 1.5)
+                time.sleep(0.3)
+                continue
+            kind, (x, y), ok, (l, t, r, b) = dlg
+            text = (ocr.read_texts([self.grab(x + self.px(l), y + self.px(t), x + self.px(r), y + self.px(b))], 2)
+                    or [""])[0]
+            texts.append(f"{kind}: {text}")
+            hits = []
+            for p, _o in self._images(ok):
+                hits = self.match_all(p, 0.85, (x - self.px(60), y + self.px(40), x + self.px(460), y + self.px(200)))
+            if len(hits) == 1:
+                self.click(("image", hits[0]))
+            else:
+                from pywinauto.keyboard import send_keys
+                send_keys("{ENTER}")
+            time.sleep(0.8)
+            again = self.dialog()
+            if again and again[0] == kind and abs(again[1][0] - x) < 5 and abs(again[1][1] - y) < 5:
+                raise Stop(f"확인창 [{kind}]의 [확인]을 눌렀는데 닫히지 않았습니다 — {text[:80]}")
+            end = max(end, time.time() + 1.5)
+        return " / ".join(texts)[:500], bool(texts)
+
+    def list_rows(self, col: tuple[int, int, int, int], number: tuple[int, int, int, int] | None) -> list[dict]:
+        """표의 체크칸 열(col, 화면 좌표) 안 체크칸마다 → {'at', 'checked', '번호'}(위에서부터).
+        번호는 체크칸 가운데 기준 number=[l,t,r,b](100% 기준) 칸을 점글꼴 숫자표로만 읽는다(못 읽으면 '')."""
+        from . import ocr
+        found = []
+        for name, checked in (("templates/checkbox_empty.png", False), ("templates/checkbox_checked.png", True)):
+            for p, _o in self._images(name):
+                found += [(pt, checked) for pt in self.match_all(p, 0.85, col)]
+        rows = []
+        for (x, y), checked in sorted(found, key=lambda v: v[0][1]):
+            if rows and abs(rows[-1]["at"][1] - y) < self.px(6):
+                continue
+            seen = ""
+            if number:
+                l, t, r, b = (self.px(v) for v in number)
+                seen = ocr.read_digits(self.grab(x + l, y + t, x + r, y + b))
+            rows.append({"at": (x, y), "checked": checked, "번호": seen})
+        return rows
+
+    def is_checked(self, at: tuple[int, int]) -> bool:
+        x, y, d = at[0], at[1], self.px(10)
+        return any(self.match_all(p, 0.85, (x - d, y - d, x + d, y + d))
+                   for p, _o in self._images("templates/checkbox_checked.png"))
+
+    def red_marks(self, l: int, t: int, r: int, b: int) -> int:
+        """영역 안 빨간 점 수 — 훈련인원 현황 「오류여부」 Y 는 빨간 글자다(화면 (144,15,36) 정도)."""
+        import numpy as np
+        a = np.array(self.grab(l, t, r, b).convert("RGB")).astype(int)
+        return int(((a[..., 0] > 110) & (a[..., 0] - a[..., 1] > 70) & (a[..., 0] - a[..., 2] > 60)).sum())
+
+    def text_rows(self, l: int, t: int, r: int, b: int) -> list[int]:
+        """세로 띠 안 짙은 글자 줄들의 가운데 y (위에서부터). 줄 사이가 크게 비면(표 끝) 거기서 멈춘다."""
+        import numpy as np
+        ys = np.where((np.array(self.grab(l, t, r, b).convert("L")) < 110).any(axis=1))[0]
+        out: list[int] = []
+        start = prev = None
+        for y in ys:
+            if prev is not None and y - prev > self.px(8):
+                out.append(t + (start + prev) // 2)
+                if y - prev > self.px(80):
+                    start = None
+                    break
+                start = y
+            if start is None and prev is None:
+                start = y
+            prev = y
+        else:
+            if prev is not None:
+                out.append(t + (start + prev) // 2)
+        return out
+
+    def total_value(self, label: str):
+        """「산출액 총액」/「신청액 총액」 라벨 오른쪽 첫 숫자 덩어리 → (점 그림 배열, 화면 영역) | None.
+        창 폭에 따라 칸 너비가 바뀌어서 거리 대신 '라벨 다음 첫 글자 덩어리'를 잡는다."""
+        import numpy as np
+        p = self._images(label)
+        if not p:
+            return None
+        hits = self.match_all(p[0][0], float(self.cfg["image_confidence"]), "screen")
+        if len(hits) != 1:
+            return None
+        from PIL import Image
+        half = int(Image.open(p[0][0]).width * getattr(self, "scale", 1.0) / 2)
+        x, y = hits[0]
+        l, t, r, b = x + half + 2, y - self.px(9), x + half + self.px(700), y + self.px(9)
+        dark = np.array(self.grab(l, t, r, b).convert("L")) < 110
+        cols = np.where(dark.any(axis=0))[0]
+        if not len(cols):
+            return None
+        start = end = cols[0]
+        for c in cols[1:]:
+            if c - end > self.px(10):
+                break
+            end = c
+        g = dark[:, start:end + 1]
+        rows = np.where(g.any(axis=1))[0]
+        return g[rows.min():rows.max() + 1], (l + start, t, l + end + 1, b)
+
+    def tidy(self) -> list[str]:
+        """멈춘 회차가 남긴 확인창·비용등록 팝업·참여 업체 목록 팝업을 닫는다(다음 회차가 검색화면에서 시작하게)."""
+        done: list[str] = []
+        closers = (
+            ("비용등록 [닫기]", {"scope_image": {"image": "templates/costreg_title.png", "box": [-60, 25, 1950, 70]},
+                               "image": "templates/btn_close_costreg.png", "unique": True}),
+            ("참여 업체 목록 [닫기]", {"scope_image": {"image": "templates/popup_company_title.png", "box": [650, 15, 740, 50]},
+                                   "image": "templates/btn_popup_close.png", "unique": True}),
+        )
+        for _ in range(4):
+            text, found = self.alert(1.0)
+            if found:
+                done.append(f"확인창 닫음({text[:40]})")
+                continue
+            for label, target in closers:
+                hit = self.find(target)
+                if hit:
+                    self.click(hit)
+                    time.sleep(1.0)
+                    done.append(label)
+                    break
+            else:
+                break
+        return done
 
     def popup_text(self) -> str:
         """HRD-Net 이 띄운 알림창 글자 (오류 판정용)."""
@@ -500,21 +701,12 @@ class Screen:
         ImageGrab.grab(all_screens=True).save(path)
 
 
-def _amount_after(texts: list[str], label: str) -> int | None:
-    """'신청액 총액 2,123,550' 처럼 라벨 뒤(같은 칸이나 다음 몇 칸)의 금액."""
-    for i, t in enumerate(texts):
-        if label in t.replace(" ", ""):
-            rest = t.replace(" ", "").split(label, 1)[1]
-            for cand in [rest, *texts[i + 1:i + 4]]:
-                n = _num(cand)
-                if n is not None:
-                    return n
-    return None
-
-
 def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = False,
-        companies: set[str] | None = None, learn: bool = False, continued: bool = False) -> dict:
-    """continued: 앞 회차가 검색화면으로 돌아온 뒤라 메뉴 이동(first_round_only)을 건너뛴다."""
+        companies: set[str] | None = None, learn: bool = False, continued: bool = False,
+        auto: bool = False, tidy: bool = False) -> dict:
+    """continued: 앞 회차가 검색화면으로 돌아온 뒤라 메뉴 이동(first_round_only)을 건너뛴다.
+    auto: 연속 실행 — 대시보드에서 한 번 확인했으니 회차마다 묻지 않는다(최종 신청·미리 채움 끝·다음 회차).
+    tidy: 앞 회차가 중간에 멈췄다 — 남은 확인창·팝업부터 닫는다."""
     cfg = config.load()
     d = config.dirs(cfg)
     mdir = macros.path()
@@ -572,6 +764,8 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
         k = vals.get("_key")
         if not k:
             raise Ineligible(why)   # 회차 전체 단계에서 난 불가 — 회차를 멈춘다
+        if k in skipped:            # 닫기(on_skip) 단계에서 또 불가가 나도 한 번만 센다 (10/30 '초연테크' 두 번)
+            return
         skipped.add(k)
         summary["불가업체"].append(vals.get("사업장명", ""))
         status.record(k, f08="불가", f09=why)
@@ -583,6 +777,12 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
         if not businesses:
             raise Stop("이번에 신청할 업체가 없습니다 — 증빙 폴더에 계산서·수납확인서가 들어왔는지 확인해 주세요")
         scr = Screen(spec.get("window", ".*HRD.*"), simulate, cfg, mdir)
+        if not simulate and scr.windows_scale() != 100:
+            summary["배율"] = scr.windows_scale()
+            print(f"  ⚠ Windows 디스플레이 배율이 {summary['배율']}% 입니다 — 100% 로 바꿔야 업체 관리번호를 읽을 수 있습니다"
+                  " (설정 > 디스플레이 > 배율)", flush=True)
+        if tidy and not simulate:
+            summary["정리"] = scr.tidy()
         for i, (step, vals) in enumerate(plan, start=1):
             sid, act = step["id"], step.get("action", "click")
             k = vals.get("_key")
@@ -606,7 +806,7 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
                 rec["창"] = "최대화/이동 → 제자리로"
                 print(f"  {sid:6} HRD-Net 창 크기가 바뀌어 제자리로 되돌렸습니다", flush=True)
             try:
-                _do_step(scr, step, vals, rec, d, name, summary, dry, simulate, fill, learn, course, rnd)
+                _do_step(scr, step, vals, rec, d, name, summary, dry, simulate, fill, learn, course, rnd, auto)
             except SkipCompany as e:
                 rec["result"] = "불가"
                 log(rec)
@@ -618,7 +818,7 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
                 status.record(keys, step=(sid, "채움"), f06=sid, f07=say)
                 if not any(s.get("after_round") for s, _v in plan[i:]):
                     break
-                if ask("filled", f"{course} {rnd}회차 — 미리 채워 보기 끝. 화면을 확인한 뒤 [다음 회차로]를 누르면 "
+                if not auto and ask("filled", f"{course} {rnd}회차 — 미리 채워 보기 끝. 화면을 확인한 뒤 [다음 회차로]를 누르면 "
                        "검색화면으로 돌아가 다음 회차를 시작합니다.", ["next", "stop"]) != "next":
                     break
                 after_round_only = True
@@ -708,7 +908,7 @@ def _human(scr: Screen, step: dict, vals: dict, rec: dict, say: str, learn: bool
 
 
 def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str, summary: dict,
-             dry: bool, simulate: bool, fill: bool, learn: bool, course: str, rnd: str) -> None:
+             dry: bool, simulate: bool, fill: bool, learn: bool, course: str, rnd: str, auto: bool = False) -> None:
     sid, act = step["id"], step.get("action", "click")
     say = rec["say"]
     company = vals.get("사업장명", "")
@@ -734,6 +934,9 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
             return
         text, found = scr.alert(float(step.get("seconds", 4)))
         rec["popup"], rec["result"] = text, "자동" if found else "알림없음"
+        if not found and step.get("expect"):
+            # 저장 확인창을 못 보고 넘어가면 저장이 안 된 채 다음으로 간다(10/30 22단계) — 멈춘다
+            _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 확인창(Confirm/알림)이 보이지 않습니다 — {say}")
         if found and any(w in text for w in ERROR_WORDS):
             if vals.get("_key"):
                 raise SkipCompany(f"{sid} 알림: {text[:120]}")
@@ -750,18 +953,35 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         summary["완료확인"] = bool(hit)
         rec["result"] = "완료확인" if hit else "확인못함"
         return
-    if act == "verify_errors":
-        # 4-4e: 담당자 요청 — 사람에게 묻지 않는다. 오류여부 Y 가 읽히면 이 업체 불가, 못 읽으면 통과(금액 확인이 한 번 더 막는다)
-        texts = scr.texts(step.get("scope"))
-        if not texts:
-            rec["result"] = "자동통과(읽기불가)"
+    if act == "maximize":
+        # 4-3m: 비용등록 팝업이 작게 열리면 오른쪽 「신청액 총액」 칸이 창 밖으로 잘린다(10/30 5회차) → 제목줄을 두 번 눌러 최대화.
+        # 이미 화면 왼쪽 위에 붙어 있으면(최대화) 누르지 않는다 — 두 번 누르면 도로 작아진다
+        if check_only:
+            rec["result"] = "확인만"
             return
-        joined = " ".join(texts)
-        if "오류여부" in joined and re.search(r"(?:^|\s)Y(?:\s|$)", joined.split("오류여부", 1)[1][:4000]):
-            raise SkipCompany("훈련인원 오류여부 Y — 신청 불가")
-        if "체납" in joined:
-            raise SkipCompany("고용보험 체납 — 신청 불가")
-        rec["result"] = "자동통과"
+        hit = scr.find(dict(step.get("target") or {}, _sid=sid))
+        if not hit:
+            _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 비용등록 팝업이 열리지 않았습니다 — {say}")
+        sl, st, _sr, _sb = scr.screen_rect()
+        x, y = hit[1]
+        if x - sl > scr.px(120) or y - st > scr.px(60):
+            import pyautogui
+            pyautogui.doubleClick(x, y)
+            time.sleep(1.2)
+            again = scr.find(dict(step.get("target") or {}, wait=3))
+            rec["최대화"] = "했음" if again and again[1][1] - st <= scr.px(60) else "안 됨(그대로 진행)"
+        else:
+            rec["최대화"] = "이미 최대"
+        rec["result"] = "자동"
+        summary["자동"] += 1
+        return
+    if act == "verify_errors":
+        # 4-4e: 사람에게 묻지 않는다. 훈련인원 현황 각 행의 「오류여부」 칸에 빨간 Y 가 있으면 이 업체 불가.
+        # 표를 못 찾으면 '통과'가 아니라 불가(확인 못 한 채 신청하지 않는다)
+        if check_only:
+            rec["result"] = "확인만"
+            return
+        _verify_errors(scr, step, rec)
         return
 
     days = step.get("only_if_older_than_days")
@@ -826,12 +1046,25 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         print(f"  {sid:6} {'멈춤':10} {say} — 미리 채워 보기라 누르지 않음", flush=True)
         raise _FillDone()
 
+    if act in ("search_company", "check_company_row") and not learn:
+        # 4-1·4-2: 관리번호를 점글꼴 숫자표로 읽어 그 업체 행만 체크한다 — 사람에게 넘기지 않는다
+        if check_only:
+            rec["result"] = "확인만"
+            return
+        (_search_company if act == "search_company" else _check_company_row)(scr, step, vals, rec, d, name, summary)
+        summary["자동"] += 1
+        rec["result"] = "자동"
+        print(f"  {sid:6} {'자동':10} {say}", flush=True)
+        _after_click(scr, sid, vals, rec)
+        return
+
     hit = None if learn else scr.find(dict(step.get("target") or {}, _sid=sid))
     rec["found"] = hit[0] if hit else None
     if not hit and step.get("skip_if_missing") and not learn:
         rec["result"] = "건너뜀(요소 없음)"   # 화면 요소를 아직 못 잡은 보조 단계 — 사람에게 묻지 않는다
         return
-    if not hit and step.get("no_human") and not learn and not check_only:
+    if not hit and not learn and not check_only:
+        # v2.2.3 — 사람에게 클릭을 넘기지 않는다(담당자 요청). 화면을 찍어 두고 이 회차를 멈춘다
         _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 화면 요소를 찾지 못해 멈춥니다 — {say}")
     if not hit:
         summary["못찾음"].append(sid)
@@ -847,13 +1080,17 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         shot = d["shots"] / f"{name}_{sid}_확인전.png"
         scr.shot(shot)
         rec["file"] = shot.name
-        if ask("confirm", f"★ {course} {rnd}회차 — {say}", ["신청", "stop"]) != "신청":
+        if not auto and ask("confirm", f"★ {course} {rnd}회차 — {say}", ["신청", "stop"]) != "신청":
             raise Stop("사람이 최종 신청을 멈춤")
 
-    if act == "search_company":
-        _search_company(scr, step, vals, rec, hit, say, learn)
-    elif hit:
-        scr.click(hit)
+    if hit:
+        box_check = act == "check" and hit[0] == "image"
+        if not (box_check and scr.is_checked(hit[1])):     # 이미 체크된 칸을 누르면 풀린다
+            scr.click(hit)
+        if box_check:
+            time.sleep(0.5)
+            if not scr.is_checked(hit[1]):
+                _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 체크칸을 눌렀는데 체크되지 않았습니다 — {say}")
         if act == "type":
             scr.type(_fmt(step.get("text", ""), vals))
             if step.get("verify_crop") and hit[0] == "image":
@@ -931,120 +1168,137 @@ def _stop_missing(scr: Screen, d: dict, name: str, sid: str, summary: dict, rec:
     raise Stop(why)
 
 
-def _number_after(texts: list[str], company: str) -> str:
-    """사업장목록 글자에서 업체명 다음에 나오는 10~11자리 숫자 = 그 업체의 사업장관리번호."""
-    ck = status.company_key(company)
-    for i, t in enumerate(texts):
-        if ck and status.company_key(t) == ck:
-            for nxt in texts[i + 1:i + 4]:
-                digits = re.sub(r"\D", "", nxt)
-                if 10 <= len(digits) <= 11:
-                    return digits
-    return ""
+def _company_rows(scr: Screen, step: dict, key: str, wait: float = 0) -> list[dict]:
+    """step[key] = {scope_image, col:[l,t,r,b](기준점 기준 체크칸 열), number:[l,t,r,b](체크칸 기준 관리번호 칸)} → 행 목록."""
+    spec = step.get(key) or {}
+    end = time.time() + wait
+    while True:
+        _region, anchor = scr._find_region(spec)
+        rows = []
+        if anchor:
+            l, t, r, b = (scr.px(v) for v in spec["col"])
+            rows = scr.list_rows((anchor[0] + l, anchor[1] + t, anchor[0] + r, anchor[1] + b), tuple(spec["number"]))
+        if rows or time.time() >= end:
+            return rows
+        time.sleep(0.5)
 
 
-def _search_company(scr: Screen, step: dict, vals: dict, rec: dict, hit, say: str, learn: bool) -> None:
-    """4-1: 참여 업체 목록 팝업에서 이 업체를 찾아 체크한다.
-    1) 관리번호(엑셀 · 전에 확인 · 사업자번호+0)로 검색 → 결과 업체명이 같을 때만 체크 (틀리면 누르지 않는다)
-    2) 유한회사이거나 1)이 안 맞으면 → 검색칸을 비워 사업장목록(그 회차 참여업체 전부)에서 업체명으로 관리번호를 읽어 다시 검색
-    3) 그래도 안 되면 멈추고 사람에게 말한다(그래도 진행 / 이 업체 불가 / 멈춤). 확인된 번호는 업체별로 저장."""
+def _tick(scr: Screen, d: dict, name: str, sid: str, summary: dict, rec: dict, row: dict, what: str) -> None:
+    """행 체크칸을 체크 상태로(이미 체크면 그대로) — 누른 뒤 체크 표시를 다시 확인한다."""
+    if not row["checked"]:
+        scr.click(("image", row["at"]))
+        time.sleep(0.5)
+    if not scr.is_checked(row["at"]):
+        _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: {what} 체크칸이 체크되지 않았습니다")
+
+
+def _search_company(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str, summary: dict) -> None:
+    """4-1: 참여 업체 목록 팝업 아래 「사업장목록」에서 사업장관리번호가 같은 행 하나만 체크한다(사람에게 넘기지 않는다).
+    1) 목록을 그대로 읽는다 — 관리번호 열은 점글꼴 숫자표로만 읽어서 못 읽으면 '' (다른 업체를 고를 수 없다)
+    2) 없으면(목록이 길어 안 보이는 등) 관리번호 칸에 번호를 넣고 [검색] 뒤 다시 읽는다
+    3) 그래도 하나로 안 정해지면 이 업체만 불가로 빼고 관리번호 확인을 요청한다"""
     company = str(vals.get("사업장명", ""))
-    no, source = str(vals.get("사업장관리번호", "") or ""), str(vals.get("관리번호출처", "") or "")
-    scope = (step.get("target") or {}).get("scope")
-    ck = status.company_key(company)
+    no = re.sub(r"\D", "", str(vals.get("사업장관리번호", "") or ""))
+    source = str(vals.get("관리번호출처", "") or "")
     rec["관리번호"], rec["관리번호출처"] = no, source
-
-    def search(number: str) -> list[str] | None:
-        """검색칸에 번호(빈칸이면 전체) → [검색] → 팝업 글자. 화면 요소를 못 잡으면 None."""
-        if not hit:
-            return None
-        scr.click(hit)
-        scr.type(number)
-        button = scr.find(step.get("search_button"))
-        if not button:
-            return None
-        scr.click(button)
-        time.sleep(float(scr.cfg["step_delay"]))
-        return scr.texts(scope)
-
-    def check_row(number: str, how: str) -> bool:
-        row = scr.find(step.get("row_check"))
-        if not row:
-            return False
-        scr.click(row)
-        rec["result"], rec["f11"] = "자동", f"일치({how})"
-        if how not in ("엑셀", "확인됨"):
-            status.learn_number(company, number, f"업체명 확인({how})")
-        return True
-
-    tried = ""
-    texts: list[str] | None = None
-    if no:   # 1) 번호로 검색 → 업체명 확인
-        texts = search(no)
-        if texts and any(ck and status.company_key(t) == ck for t in texts) and check_row(no, source or "번호"):
+    if not scr.find(step.get("popup")):
+        _stop_missing(scr, d, name, step["id"], summary, rec, f"{step['id']}: 참여 업체 목록 팝업이 보이지 않습니다")
+    if not no:
+        raise SkipCompany(f"사업장관리번호를 알 수 없습니다({source or '엑셀·사업자번호 없음'})")
+    for attempt in ("목록", "검색"):
+        if attempt == "검색":
+            box, button = scr.find(step.get("input")), scr.find(step.get("search_button"))
+            if not (box and button):
+                rec["검색"] = "관리번호 칸/[검색]을 못 찾음"
+                break
+            scr.click(box)
+            scr.type(no)
+            scr.click(button)
+            time.sleep(float(scr.cfg["step_delay"]) + 0.7)
+        rows = _company_rows(scr, step, "rows", wait=3)
+        rec.setdefault("읽은번호", {})[attempt] = [r["번호"] for r in rows]
+        same = [r for r in rows if r["번호"] == no]
+        if len(same) == 1:
+            _tick(scr, d, name, step["id"], summary, rec, same[0], "사업장목록")
+            rec["f11"] = f"관리번호 일치({source or '번호'}, {attempt})"
+            if source not in ("엑셀", "확인됨"):
+                status.learn_number(company, no, f"참여 업체 목록 번호 일치({source})")
             return
-        if texts == [] and source in ("엑셀", "확인됨") and check_row(no, source):
-            # 팝업 글자를 못 읽어 업체명은 확인 못 하지만, 엑셀·전에 확인한 번호라 믿고 체크한다
-            rec["f11"] = f"번호로 체크({source}, 업체명 글자 못 읽음)"
-            return
-        tried = "글자 안 읽힘" if texts == [] else "화면 요소 못 찾음" if texts is None else "검색 결과 업체명 다름"
-    if texts is None or texts:
-        # 2) 목록 전체에서 업체명으로 번호 읽기 (유한회사·추정 틀림)
-        texts = search("")
-        found = _number_after(texts or [], company)
-        if found and found != no:
-            again = search(found)
-            if again and any(status.company_key(t) == ck for t in again) and check_row(found, "목록에서 확인"):
-                return
-    # 3) 사람에게 — 왜 못 찾았는지 정확히 말한다
-    why = (f"관리번호 {no}({source})로 찾았지만 {tried}" if no else f"관리번호 {source}")
-    rec["f11"] = f"사람 확인 — {why}"
-    if source.startswith("확인필요"):
-        status.ask_later(vals.get("과정명", ""), vals.get("회차", ""), company,
-                         f"사업장관리번호를 알 수 없습니다({source}). 알려 주시면 다음부터 자동으로 찾겠습니다.")
-    if hit and texts:
-        # 목록 글자를 읽었는데 이 업체가 없음(번호 추정이 틀림 등) → 멈추지 않고 이 업체만 불가로 빼고 다음 업체로.
-        # 글자를 못 읽는 것(texts == [])은 '틀림'이 아니라 '확인 수단 없음'이라 아래 사람 단계로 간다
-        status.ask_later(vals.get("과정명", ""), vals.get("회차", ""), company,
-                         f"참여 업체 목록에서 찾지 못해 건너뛰었습니다 ({why}). 사업장관리번호를 알려 주시면 다시 신청하겠습니다.")
-        raise SkipCompany(f"참여 업체 목록에서 확인 불가 — 관리번호 확인 필요 ({why})")
-    else:                               # 화면 요소를 아직 못 잡음(녹화 전) → 사람 단계(클릭 학습)
-        a = _human(scr, step, vals, rec, say + (f" (관리번호 {source})" if source else ""), learn,
-                   ["ok", "ineligible", "stop"])
-    if a == "ineligible":
-        raise SkipCompany(f"참여 업체 목록에서 업체 확인 불가 ({why})")
-    if a == "stop":
-        raise Stop(f"{step['id']}에서 사람이 중단")
-    rec["result"] = "사람"
+        if len(same) > 1:
+            break                      # 같은 번호가 여러 줄 — 고르지 않는다
+    why = f"참여 업체 목록에서 관리번호 {no}({source}) 행을 하나로 찾지 못했습니다"
+    rec["f11"] = why
+    raise SkipCompany(why + " — 사업장관리번호 확인 필요")
+
+
+def _check_company_row(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str, summary: dict) -> None:
+    """4-2: 위쪽 「비용신청대상 사업장」 목록에서 이 업체(관리번호) 행만 체크하고, 앞 업체 행 체크는 푼다."""
+    no = re.sub(r"\D", "", str(vals.get("사업장관리번호", "") or ""))
+    rows = _company_rows(scr, step, "rows", wait=5)
+    same = [r for r in rows if r["번호"] == no]
+    if len(same) != 1:
+        rec["읽은번호"] = [r["번호"] for r in rows]
+        _stop_missing(scr, d, name, step["id"], summary, rec,
+                      f"{step['id']}: 비용신청대상 사업장에서 관리번호 {no} 행을 하나로 찾지 못했습니다 ({len(rows)}줄)")
+    for r in rows:
+        if r is not same[0] and r["checked"]:
+            scr.click(("image", r["at"]))          # 한 번에 한 업체만 비용등록한다
+            time.sleep(0.3)
+    _tick(scr, d, name, step["id"], summary, rec, same[0], "비용신청대상 사업장")
+
+
+def _verify_errors(scr: Screen, step: dict, rec: dict) -> None:
+    """4-4e: 훈련인원 현황 표의 행(체크칸)마다 「오류여부」 칸에 빨간 Y 가 있는지 본다 → 있으면 이 업체 불가."""
+    end = time.time() + float(step.get("wait", 5))
+    err = seq = []
+    while True:
+        err = [h for p, _o in scr._images(step.get("error_header")) for h in scr.match_all(p, 0.85, "screen")]
+        seq = [h for p, _o in scr._images(step.get("row_header")) for h in scr.match_all(p, 0.85, "screen")]
+        if (len(err) == 1 and len(seq) == 1) or time.time() >= end:
+            break
+        time.sleep(0.5)
+    if len(err) != 1 or len(seq) != 1:
+        raise SkipCompany("훈련인원 현황 표(오류여부 칸)를 찾지 못해 오류여부를 확인하지 못했습니다")
+    (ex, _ey), (sx, sy) = err[0], seq[0]
+    # 오류가 있는 훈련생 행에는 체크칸이 없다(10/30 19회차) — 행은 「연번」 열 글자로 세고, Y 는 「오류여부」 열의 빨간 줄로 센다.
+    # 「선택 인원」 노란 줄 아래부터 본다. 비용등록 창은 4-3m 에서 최대화해 두어 아래쪽은 창 안이다
+    top, bottom = sy + scr.px(55), sy + scr.px(step.get("rows_height", 900))
+    rows = scr.text_rows(sx + scr.px(-50), top, sx + scr.px(-25), bottom)
+    if not rows:
+        raise SkipCompany("훈련인원 현황에 훈련생 행이 보이지 않습니다")
+    half = scr.px(20)
+    bad = sum(scr.red_marks(ex - scr.px(16), y - half, ex + scr.px(16), y + half) >= 5 for y in rows)
+    rec["오류여부"] = f"{len(rows)}명 중 Y {bad}명"
+    if bad:
+        raise SkipCompany(f"훈련인원 오류여부 Y {bad}명 — 신청 불가")
+    rec["result"] = "자동통과"
 
 
 def _verify_amount(scr: Screen, step: dict, vals: dict, rec: dict, hit) -> None:
-    """4-5: [산출액→신청액] 뒤 신청액 총액 == 산출액 총액 == 대시보드 신청금액. 0 이면 한 번 더 누른다."""
+    """4-5: [산출액→신청액] 뒤 「신청액 총액」 숫자가 「산출액 총액」 숫자와 점 하나까지 같고 0 이 아닌지(글자 읽기 없이 그림 비교).
+    0 이면 한 번 더 누른다. 그래도 다르면 이 업체 불가. 대시보드 금액과의 비교는 OCR 로 읽어 기록만 한다."""
+    from . import ocr
     expected = _num(str(int(float(vals.get("신청금액") or 0)))) or 0
     for attempt in (1, 2):
-        time.sleep(float(scr.cfg["step_delay"]))
-        texts = scr.texts(step.get("target", {}).get("scope"))
-        applied, computed = _amount_after(texts, "신청액총액"), _amount_after(texts, "산출액총액")
-        if applied is None:
-            rec["f10"] = "확인못함(글자 안 읽힘)"
+        time.sleep(float(scr.cfg["step_delay"]) + 0.4)
+        c, a = scr.total_value(step.get("computed_label")), scr.total_value(step.get("applied_label"))
+        if not c or not a:
+            raise SkipCompany("산출액·신청액 총액 칸을 찾지 못해 금액을 확인하지 못했습니다")
+        same = c[0].shape == a[0].shape and bool((c[0] == a[0]).all())
+        if same and a[0].shape[1] >= scr.px(12):          # 한 글자(0)보다 넓어야 금액이 들어간 것
+            seen = _num((ocr.read_texts([scr.grab(*c[1])], 4, binarize=True) or [""])[0]) or 0
+            rec["f10"] = f"산출액 = 신청액 (그림 일치) · 읽은 금액 {seen:,} / 대시보드 {expected:,}"
+            if expected and seen and seen != expected:
+                rec["f10"] += " — 대시보드와 다름(기록만, HRD 산출액 기준)"
             return
-        if applied == 0 and attempt == 1:
+        if attempt == 1:
             scr.click(hit)                   # 사이드 패널에선 넘어갔는데 실제로 안 눌린 경우가 있었다
-            continue
-        ok = applied == computed and (not expected or applied == expected)
-        rec["f10"] = f"신청 {applied:,} / 산출 {computed or 0:,} / 대시보드 {expected:,}" + (" ✓" if ok else " ✗")
-        if ok:
-            return
-        a = ask("company", f"금액이 맞지 않습니다 — {rec['f10']}. 화면을 확인해 주세요.", ["proceed", "ineligible", "stop"])
-        if a == "ineligible":
-            raise SkipCompany("신청금액 불일치")
-        if a == "stop":
-            raise Stop(f"{step['id']} 금액 불일치로 사람이 중단")
-        return
+    rec["f10"] = "산출액 ≠ 신청액"
+    raise SkipCompany("신청액 총액이 산출액 총액과 같지 않습니다")
 
 
 def run_all(dry: bool = False, simulate: bool = False, fill: bool = False, only: list[str] | None = None,
-            companies: set[str] | None = None, learn: bool = False) -> None:
+            companies: set[str] | None = None, learn: bool = False, auto: bool = False) -> None:
     """only 가 있으면 그 회차 폴더들만, 없으면 아직 신청 안 된 회차 전부.
     증빙은 실행할 때 폴더를 다시 보고 판단하므로 manifest 의 정리 상태는 따지지 않는다."""
     d = config.dirs()
@@ -1062,7 +1316,10 @@ def run_all(dry: bool = False, simulate: bool = False, fill: bool = False, only:
     s: dict = {}
     for k, f in enumerate(todo):
         s = run(f, dry=dry, simulate=simulate, fill=fill, companies=companies, learn=learn,
-                continued=bool(s.get("복귀")))
+                continued=bool(s.get("복귀")), auto=auto, tidy=bool(s) and not s.get("복귀"))
         if s["상태"] in ("중단", "오류", "실패") and not (dry or simulate) and k < len(todo) - 1:
+            if auto:
+                print(f"  → {f.name}: {s['상태']} — 연속 실행이라 화면을 정리하고 다음 회차로 갑니다", flush=True)
+                continue
             if ask("next", f"{f.name}: {s['상태']} — 다음 회차로 넘어갈까요?", ["next", "stop"]) != "next":
                 break

@@ -2,6 +2,9 @@
 
 키보드 입력은 기록하지 않는다. 현재 HRD-Net 주 창 안에서 발생한 왼쪽 클릭만
 창 크기 대비 상대 좌표와 버튼 주변 이미지로 저장한다.
+
+v2.2.3 — 버튼 그림은 누르는 순간이 아니라 '마우스가 그 버튼 위에 없던 직전 화면'에서 자른다.
+누르는 순간 화면은 버튼이 마우스오버(진한색)로 바뀌어 있어 평소 화면과 안 맞았다(10/30 4단계 찾기실패).
 """
 from __future__ import annotations
 
@@ -34,6 +37,8 @@ class StepRecorder:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._pressed = False
+        self._snaps: list = []     # 최근 화면들 (그림, 그때 마우스 x, y, 창 영역) — 0.4초마다, 최근 4초
+        self._snap_at = 0.0
         self.macro_dir = macros.path()
         self.templates = self.macro_dir / "templates" / "learned"
         self.templates.mkdir(parents=True, exist_ok=True)
@@ -70,8 +75,24 @@ class StepRecorder:
                     left, top, right, bottom = rect
                     if left <= point.x < right and top <= point.y < bottom and len(self.events) < 20:
                         self._record(point.x, point.y, rect)
+            if not down and time.time() - self._snap_at > 0.4:
+                self._snapshot()
             self._pressed = down
             time.sleep(0.025)
+
+    def _snapshot(self) -> None:
+        """마우스가 지금 자리에서 버튼을 누를 때를 대비해, 마우스 위치와 함께 창 화면을 찍어 둔다."""
+        rect = self._rect()
+        point = wintypes.POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(point))
+        self._snap_at = time.time()
+        if not rect:
+            return
+        try:
+            image = ImageGrab.grab(bbox=rect, all_screens=True)
+        except Exception:  # noqa: BLE001
+            return
+        self._snaps = (self._snaps + [(image, point.x, point.y, rect)])[-10:]
 
     def _record(self, x: int, y: int, rect: tuple[int, int, int, int]) -> None:
         left, top, right, bottom = rect
@@ -80,10 +101,12 @@ class StepRecorder:
         safe_step = re.sub(r"[^0-9A-Za-z가-힣_-]", "_", self.step_id)
         template = self.templates / f"{safe_step}_{index}.png"
         try:
-            image = ImageGrab.grab(bbox=rect, all_screens=True)
+            # 누른 자리에서 마우스가 멀리 있던 가장 최근 화면 — 없으면(마우스를 오래 올려 두었으면) 지금 화면
+            far = [sn for sn in self._snaps if sn[3] == rect and (abs(x - sn[1]) > 60 or abs(y - sn[2]) > 30)]
+            image = far[-1][0] if far else ImageGrab.grab(bbox=rect, all_screens=True)
             rel_x, rel_y = x - left, y - top
-            x1, y1 = max(0, rel_x - 70), max(0, rel_y - 28)
-            x2, y2 = min(width, rel_x + 70), min(height, rel_y + 28)
+            x1, y1 = max(0, rel_x - 50), max(0, rel_y - 14)       # 버튼 크기 정도만 — 주변 데이터는 넣지 않는다
+            x2, y2 = min(width, rel_x + 50), min(height, rel_y + 14)
             image.crop((x1, y1, x2, y2)).save(template)
             template_path = str(template.relative_to(self.macro_dir)).replace("\\", "/")
         except Exception:  # noqa: BLE001 — 좌표 기록은 유지한다

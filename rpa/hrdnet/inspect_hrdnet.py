@@ -2,7 +2,7 @@
 
 UIA 로 버튼·칸의 이름이 보이면 steps.yaml 에 uia target 을 채우고(빠르고 튼튼함),
 안 보이면 버튼 이미지를 templates/ 에 넣어 image target 을 쓴다.
-결과: logs/inspect_<시각>.txt + .png(HRD-Net 창 화면) — 훈련생 정보가 보이는 화면(비용등록 팝업)에서는 돌리지 않는다
+결과: logs/inspect_<시각>.txt + .png(HRD-Net 창 화면) — 비용등록 팝업에서 돌리면 훈련생 이름이 찍히니 사내로만 보낸다
 """
 from __future__ import annotations
 
@@ -42,14 +42,14 @@ def _scores(scr, path) -> tuple[float, tuple[int, int], int]:
 
 
 def automation_check(shot_path=None) -> list[str]:
-    """v2.2.2 자동화가 지금 화면에서 무엇을 찾는지 — 누르거나 입력하지 않고 찾기만 한다.
+    """v2.2.3 자동화가 지금 화면에서 무엇을 찾는지 — 누르거나 입력하지 않고 찾기만 한다.
     HRD-Net 화면은 UIA·웹 구조로 보이지 않아(10/29 진단) 그림 찾기와 OCR(윈도우 내장 글자 읽기)로 판정한다.
     첫 화면에서는 메뉴검색 돋보기, 비용신청관리(위탁) 검색 목록에서는 기준 그림·[신청] 버튼·각 행의 회차 읽기를 본다.
     shot_path 를 주면 HRD-Net 창 화면을 저장한다 — 실제 화면으로 그림을 다시 다듬는 데 쓴다."""
     from . import macros, ocr
     from .upload import Screen
 
-    out = ["### 자동화 판정 (v2.2.2 — 찾기만 함, 누르지 않음)"]
+    out = ["### 자동화 판정 (v2.2.3 — 찾기만 함, 누르지 않음)"]
     try:
         mdir = macros.path()
         spec = macros.spec(mdir.name)
@@ -101,6 +101,47 @@ def automation_check(shot_path=None) -> list[str]:
         out.append("※ 읽은 회차가 실제 화면과 다르면 알려 주세요 (3단계는 이 값이 맞아야 자동으로 누릅니다)")
     else:
         out.append("목록 [신청] 버튼: 없음 (검색 목록 화면이 아니거나 그림이 안 맞음)")
+    out += _later_steps(scr, spec)
+    return out
+
+
+def _later_steps(scr, spec: dict) -> list[str]:
+    """v2.2.3 — 4단계 이후(상세화면·참여 업체 목록·비용등록 팝업·확인창)를 지금 화면에서 찾기만 한다.
+    어느 화면에서 돌려도 된다: 그 화면에 있어야 할 것만 '찾음'으로 나온다."""
+    from . import upload
+
+    flat = {}
+    for s in spec.get("steps", []):
+        for sub in s.get("steps", [s]) if isinstance(s, dict) else []:
+            flat[sub.get("id")] = sub
+    out = ["", "### 4단계 이후 (v2.2.3 — 찾기만 함, 누르지 않음)"]
+    for sid in ("4", "4-3", "4-3m", "4-4", "4-5", "4-6", "4-s", "4-7", "6", "7", "8"):
+        step = flat.get(sid) or {}
+        hit = scr.find(dict(step.get("target") or {}, wait=0))
+        out.append(f"단계 {sid:5} {step.get('say', '')[:30]!r}: {('찾음 ' + str(hit[1])) if hit else '-'}")
+    for sid, label in (("4-1", "사업장목록"), ("4-2", "비용신청대상 사업장")):
+        rows = upload._company_rows(scr, flat.get(sid) or {}, "rows")
+        if rows:
+            out.append(f"{label} {len(rows)}줄 — 관리번호(점글꼴): " +
+                       ", ".join(f"{r['번호'] or '?'}{'✓' if r['checked'] else ''}" for r in rows))
+    if (flat.get("4-4e") or {}).get("error_header"):
+        rec: dict = {}
+        try:
+            upload._verify_errors(scr, dict(flat["4-4e"], wait=0), rec)
+            out.append(f"훈련인원 오류여부: {rec.get('오류여부')} → 통과")
+        except upload.SkipCompany as e:
+            if "찾지 못해" not in str(e):
+                out.append(f"훈련인원 오류여부: {rec.get('오류여부', '')} → 이 업체 불가 예상 ({e})")
+    step = flat.get("4-5") or {}
+    c, a = scr.total_value(step.get("computed_label")), scr.total_value(step.get("applied_label"))
+    if c and a:
+        same = c[0].shape == a[0].shape and bool((c[0] == a[0]).all())
+        out.append(f"산출액 총액 / 신청액 총액 그림: {'같음' if same else '다름'}")
+    dlg = scr.dialog()
+    out.append(f"확인창: {dlg[0] + ' 떠 있음 ' + str(dlg[1]) if dlg else '없음'}")
+    out.append(f"Windows 디스플레이 배율: {scr.windows_scale()}%" + ("" if scr.windows_scale() == 100 else
+               "  ⚠ 100% 로 바꿔 주세요 (설정 > 디스플레이 > 배율) — 다르면 관리번호 숫자를 못 읽어 업체가 '불가'로 빠집니다"))
+    out.append(f"그림 배율: {getattr(scr, 'scale', 1.0):.2f} (1.00 = 그림을 뜬 화면과 같은 크기)")
     return out
 
 
