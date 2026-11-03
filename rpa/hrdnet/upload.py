@@ -408,6 +408,11 @@ class Screen:
             import pyautogui
             pyautogui.click(*el)
 
+    def scroll(self, at: tuple[int, int], notches: int):
+        """at 자리에 마우스를 두고 휠을 굴린다(음수 = 아래로). 한 칸 = 120."""
+        from pywinauto import mouse
+        mouse.scroll(coords=at, wheel_dist=notches)
+
     def type(self, text: str):
         from pywinauto.keyboard import send_keys
         send_keys("^a{BACKSPACE}", pause=0.02)
@@ -752,7 +757,12 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
                "업체": [b.get("사업장명", "") for b in businesses], "빠진업체": left_out, "불가업체": []}
     plan = _flatten(spec["steps"], manifest, businesses)
     summary["단계수"] = len(plan)
-    print(f"[{mode}] {mmeta['표시명']} · {course} {rnd}회차 — 업체 {len(businesses)}곳, {len(plan)}단계", flush=True)
+    # v2.2.4 기본 매크로처럼 최종 신청(confirm) 단계가 없으면 [저장]까지만 한다 — 끝나도 「신청완료」가 아니라 「저장완료」
+    to_save = not any(s.get("confirm") for s, _v in plan)
+    if to_save:
+        summary["범위"] = "저장까지"
+    print(f"[{mode}] {mmeta['표시명']} · {course} {rnd}회차 — 업체 {len(businesses)}곳, {len(plan)}단계"
+          + (" · 증빙 첨부 → [저장]까지 (훈련비용 신청은 하지 않음)" if to_save else ""), flush=True)
     if left_out:
         print("  이번에 뺀 업체: " + ", ".join(left_out), flush=True)
     status.record(keys, f01=mmeta["id"], f02=mmeta["표시명"], f03=mode, f04=summary["시작"], f05="",
@@ -799,7 +809,7 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
                 continue
             if after_round_only and not step.get("after_round"):
                 continue
-            if step.get("after_round") and not after_round_only and fill:
+            if step.get("after_round") and not after_round_only and fill and not to_save:
                 continue                       # 미리 채움에서 복귀는 사람이 [다음 회차로]를 누른 뒤에만
             if skipped and len(skipped) == len(keys) and not step.get("on_skip") and not step.get("after_round"):
                 raise Ineligible("고른 업체가 모두 불가라 이 회차는 신청하지 않습니다")
@@ -836,7 +846,7 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
             status.record(targets, step=(sid.split("#")[0], rec.get("result", "")), f06=sid, f07=say,
                           **{f: rec[f] for f in ("f10", "f11", "f12") if f in rec})
         if not summary["상태"]:
-            summary["상태"] = {"simulate": "모의완료", "dry-run": "점검완료"}.get(mode, "성공")
+            summary["상태"] = {"simulate": "모의완료", "dry-run": "점검완료"}.get(mode, "저장완료" if to_save else "성공")
             if mode == "실행" and summary.get("완료확인") is False:
                 summary["상태"] = "확인필요"
     except Ineligible as e:
@@ -979,6 +989,33 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
             rec["최대화"] = "이미 최대"
         rec["result"] = "자동"
         summary["자동"] += 1
+        return
+    if act == "scroll":
+        # 5-0 (v2.2.4): 창 1400×1032 에서는 「첨부파일 목록」이 화면 아래에 가려 있다(11/3 멈춤 원인).
+        # 기준 그림(상단 [저장])에서 떨어진 본문 빈 여백에 마우스를 두고 until 그림이 보일 때까지 휠을 굴린다
+        if check_only:
+            rec["result"] = "확인만"
+            return
+        anchor = scr.find(dict(step.get("anchor") or {}, _sid=""))
+        if not anchor:
+            _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 상세(위탁) 화면의 [저장]이 보이지 않습니다 — {say}")
+        dx, dy = step.get("at") or (0, 300)
+        spot = (anchor[1][0] + scr.px(dx), anchor[1][1] + scr.px(dy))
+        until = {"image": step.get("until"), "unique": True}
+        notches = int(step.get("notches", 5))
+        turns = 0
+        while not scr.find(until):
+            if turns >= int(step.get("max", 12)):
+                _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 아래로 내려도 「첨부파일 목록」이 보이지 않습니다 — {say}")
+            scr.scroll(spot, -notches)
+            turns += 1
+            time.sleep(0.4)
+        if step.get("extra"):
+            scr.scroll(spot, -int(step["extra"]))
+            time.sleep(0.4)
+        rec["굴림"], rec["result"] = turns, "자동"
+        summary["자동"] += 1
+        print(f"  {sid:6} {'자동':10} {say} (휠 {turns}번)", flush=True)
         return
     if act == "verify_errors":
         # 4-4e: 사람에게 묻지 않는다. 훈련인원 현황 각 행의 「오류여부」 칸에 빨간 Y 가 있으면 이 업체 불가.
@@ -1313,7 +1350,7 @@ def run_all(dry: bool = False, simulate: bool = False, fill: bool = False, only:
         if only is not None:
             if m.parent.name in only:
                 todo.append(m.parent)
-        elif (j.get("올리기") or {}).get("상태") != "성공":
+        elif (j.get("올리기") or {}).get("상태") not in ("성공", "저장완료"):   # 저장완료를 또 돌리면 증빙이 두 번 붙는다
             todo.append(m.parent)
     if only:   # 대시보드에서 고른 순서대로
         todo.sort(key=lambda p: only.index(p.name))

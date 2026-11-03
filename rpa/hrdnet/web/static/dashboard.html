@@ -152,7 +152,7 @@ input{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px 8p
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const won = v => Number(v || 0).toLocaleString('ko-KR');
-const PILL = {'성공':'ok','준비완료':'ok','채움완료':'ok','실패':'bad','오류':'bad','중단':'bad','증빙누락':'bad','점검완료':'blue','모의완료':'blue','미실행':''};
+const PILL = {'성공':'ok','저장완료':'ok','준비완료':'ok','채움완료':'ok','실패':'bad','오류':'bad','중단':'bad','증빙누락':'bad','점검완료':'blue','모의완료':'blue','미실행':''};
 const pill = v => `<span class="pill ${PILL[v] ?? ''}">${esc(v || '—')}</span>`;
 let S = null, SEL = new Set(JSON.parse(localStorage.getItem('hrd_sel') || '[]')), CUR = localStorage.getItem('hrd_cur') || '', since = 0, TAB = localStorage.getItem('hrd_tab') || 'rounds';
 
@@ -193,7 +193,7 @@ async function refresh() {
   $('#bdot').className = 'dot ' + (S.busy ? 'busy' : 'on');
   $('#btxt').textContent = S.busy ? S.label + ' 하는 중' : '대기';
   const k = S.kpi;
-  $('#kpis').innerHTML = [['회차', k.회차], ['올리기 준비완료', k.준비완료], ['증빙 누락', k.증빙누락], ['미리 채움 완료', k.채움완료], ['신청 성공', k.성공], ['실패·오류·중단', k.문제]]
+  $('#kpis').innerHTML = [['회차', k.회차], ['올리기 준비완료', k.준비완료], ['증빙 누락', k.증빙누락], ['미리 채움 완료', k.채움완료], ['저장 완료(신청 전)', k.저장완료 ?? 0], ['신청 성공', k.성공], ['실패·오류·중단', k.문제]]
     .map(([a, b]) => `<div class="kpi"><span>${a}</span><b>${b}</b></div>`).join('');
   $('#ask').innerHTML = askBox(S.ask);
   $('#inbox').innerHTML = (S.inbox.length ? S.inbox.map(f => `<div>📄 ${esc(f.name)}</div>`).join('') : '엑셀 없음') + `<div style="margin-top:6px">증빙 pdf ${S.pdfs.length}개${S.pdfs.length ? ': ' + S.pdfs.slice(0, 8).map(esc).join(', ') + (S.pdfs.length > 8 ? ' …' : '') : ''}</div>`;

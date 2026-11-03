@@ -32,7 +32,7 @@ def run(day: str = "") -> None:
     for r in rows:
         ws.append([r.get(c, "") for c in COLS] + [r["못찾음"]])
     ws2 = wb.create_sheet("집계")
-    for st in ("성공", "실패", "오류", "중단", "점검완료", "모의완료"):
+    for st in ("성공", "저장완료", "실패", "오류", "중단", "점검완료", "모의완료"):
         ws2.append([st, sum(1 for r in rows if r["상태"] == st)])
     xlsx = d["결과"] / f"결과_{day}.xlsx"
     wb.save(xlsx)

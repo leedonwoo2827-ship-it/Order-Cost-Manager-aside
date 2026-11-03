@@ -49,7 +49,7 @@ def automation_check(shot_path=None) -> list[str]:
     from . import macros, ocr
     from .upload import Screen
 
-    out = ["### 자동화 판정 (v2.2.3 — 찾기만 함, 누르지 않음)"]
+    out = ["### 자동화 판정 (v2.2.4 — 찾기만 함, 누르지 않음)"]
     try:
         mdir = macros.path()
         spec = macros.spec(mdir.name)
@@ -106,7 +106,7 @@ def automation_check(shot_path=None) -> list[str]:
 
 
 def _later_steps(scr, spec: dict) -> list[str]:
-    """v2.2.3 — 4단계 이후(상세화면·참여 업체 목록·비용등록 팝업·확인창)를 지금 화면에서 찾기만 한다.
+    """v2.2.3~ — [신청] 이후(상세화면·참여 업체 목록·비용등록 팝업·확인창)를 지금 화면에서 찾기만 한다.
     어느 화면에서 돌려도 된다: 그 화면에 있어야 할 것만 '찾음'으로 나온다."""
     from . import upload
 
@@ -114,12 +114,20 @@ def _later_steps(scr, spec: dict) -> list[str]:
     for s in spec.get("steps", []):
         for sub in s.get("steps", [s]) if isinstance(s, dict) else []:
             flat[sub.get("id")] = sub
-    out = ["", "### 4단계 이후 (v2.2.3 — 찾기만 함, 누르지 않음)"]
-    for sid in ("4", "4-3", "4-3m", "4-4", "4-5", "4-6", "4-s", "4-7", "6", "7", "8"):
-        step = flat.get(sid) or {}
+    out = ["", "### [신청] 이후 (v2.2.4 — 찾기만 함, 누르지 않음)"]
+    if flat.get("5-0"):
+        step = flat["5-0"]
+        seen = scr.find({"image": step.get("until"), "unique": True})
+        out.append("단계 5-0   첨부파일 목록(「숙박비 관련」 행): " + ("보임" if seen else "안 보임 → 매크로가 아래로 굴려 찾습니다"))
+    for sid in ("4", "4-3", "4-3m", "4-4", "4-5", "4-6", "4-s", "4-7", "5-1", "5-2", "6", "7", "8"):
+        if sid not in flat:          # v2.2.4 기본 매크로에는 4·7·8 단계가 없다
+            continue
+        step = flat[sid]
         hit = scr.find(dict(step.get("target") or {}, wait=0))
         out.append(f"단계 {sid:5} {step.get('say', '')[:30]!r}: {('찾음 ' + str(hit[1])) if hit else '-'}")
     for sid, label in (("4-1", "사업장목록"), ("4-2", "비용신청대상 사업장")):
+        if sid not in flat:
+            continue
         rows = upload._company_rows(scr, flat.get(sid) or {}, "rows")
         if rows:
             out.append(f"{label} {len(rows)}줄 — 관리번호(점글꼴): " +
@@ -133,7 +141,7 @@ def _later_steps(scr, spec: dict) -> list[str]:
             if "찾지 못해" not in str(e):
                 out.append(f"훈련인원 오류여부: {rec.get('오류여부', '')} → 이 업체 불가 예상 ({e})")
     step = flat.get("4-5") or {}
-    c, a = scr.total_value(step.get("computed_label")), scr.total_value(step.get("applied_label"))
+    c, a = (scr.total_value(step.get("computed_label")), scr.total_value(step.get("applied_label"))) if step else (None, None)
     if c and a:
         same = c[0].shape == a[0].shape and bool((c[0] == a[0]).all())
         out.append(f"산출액 총액 / 신청액 총액 그림: {'같음' if same else '다름'}")

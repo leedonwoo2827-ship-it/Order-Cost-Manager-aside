@@ -37,7 +37,7 @@ LOCAL_HOSTS = {"127.0.0.1", "::1"}
 UI_PORT = 0
 # 대시보드(electron/main.cjs RPA_ENGINE_VERSION)와 같아야 한다. 다르면 대시보드가 이 엔진을 끄고 새로 켠다
 # (엔진 창은 최소화로 떠 있어 사람이 찾아 닫기 어렵다). 엔진 코드를 바꾸면 양쪽을 같이 올린다.
-ENGINE_VERSION = "2026-10-30.1"
+ENGINE_VERSION = "2026-11-03.1"
 
 app = FastAPI(title="비용신청 공방")
 
@@ -278,7 +278,7 @@ def state(request: Request):
         "root": str(d["root"]), "hrdnet": hrd, "hrdnet_exe": cfg.get("hrdnet_exe", ""),
         "kpi": {"회차": len(rs), "준비완료": count("정리", "준비완료"), "증빙대기": count("정리", "증빙대기"),
                 "업체": sum(r["사업장"] for r in rs), "업체_신청가능": sum(r["신청가능"] for r in rs),
-                "채움완료": count("올리기", "채움완료"), "성공": count("올리기", "성공"),
+                "채움완료": count("올리기", "채움완료"), "저장완료": count("올리기", "저장완료"), "성공": count("올리기", "성공"),
                 "문제": sum(1 for r in rs if r["올리기"] in ("실패", "오류", "중단"))},
         "rounds": rs, "inbox": inbox, "pdfs": pdfs, "results": results,
         "report": reports[-1].read_text(encoding="utf-8") if reports else "",
