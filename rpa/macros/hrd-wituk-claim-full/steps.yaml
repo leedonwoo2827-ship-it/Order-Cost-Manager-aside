@@ -92,6 +92,15 @@ steps:
   - id: "4-x"
     for_each: 사업장
     steps:
+      - id: "4-0"
+        say: "상세(위탁) 화면을 조금 내려 「참여업체별 비용신청 현황」 [비용등록]이 보이게 (v2.2.5, 창 1400)"
+        action: scroll
+        anchor: {image: "templates/btn_save_main.png", unique: true, wait: 15}
+        at: [-744, 368]
+        until: "templates/btn_cost_register_main.png"
+        from_top: 40                          # 안 보이면 먼저 맨 위로 올린다(앞 업체 뒤 화면이 아래에 있을 때)
+        notches: 2
+        max: 8
       - id: "4"
         say: "참여업체별 비용신청 현황 → [비용등록] 클릭 (참여 업체 목록 팝업) — {사업장명}"
         action: click
@@ -153,23 +162,34 @@ steps:
         on_skip: true
         target: {scope_image: {image: "templates/popup_company_title.png", box: [650, 15, 740, 50]}, image: "templates/btn_popup_close.png", unique: true, wait: 3, learned: "off"}
 
+  # v2.2.5 — 기본 매크로(v1)와 같게: 「첨부파일 목록」까지 내린 뒤, 행 이름과 같은 줄의 [첨부]만 누른다.
+  - id: "5-0"
+    say: "비용신청관리 상세(위탁) 화면을 아래로 내려 「첨부파일 목록」이 보이게"
+    action: scroll
+    anchor: {image: "templates/btn_save_main.png", unique: true, wait: 15}
+    at: [-744, 368]
+    until: "templates/lbl_row_lodging.png"
+    notches: 5
+    max: 12
+    extra: 10
+
   - id: "5-a"
     for_each: 전자계산서목록
     steps:
       - id: "5-1"
-        say: "첨부파일 목록 — 훈련비 증명서류 [첨부] → {사업장명} 전자계산서"
+        say: "첨부파일 목록 — 「훈련비 증명서류」 행 [첨부] → {사업장명} 전자계산서"
         action: attach
         file: "{파일}"
-        target: {uia: {}, image: "templates/learned/5-1_1.png"}
+        target: {scope_image: {image: "templates/lbl_row_training.png", box: [300, -11, 1500, 11]}, image: "templates/btn_attach.png", unique: true, wait: 3, learned: "off"}
 
   - id: "5-b"
     for_each: 수납확인서목록
     steps:
       - id: "5-2"
-        say: "첨부파일 목록 — 숙박비 관련 증명서류 [첨부] → {사업장명} 수납확인서"
+        say: "첨부파일 목록 — 「숙박비 관련」 행 [첨부] → {사업장명} 수납확인서"
         action: attach
         file: "{파일}"
-        target: {uia: {}, image: "templates/learned/5-2_1.png"}
+        target: {scope_image: {image: "templates/lbl_row_lodging.png", box: [300, -11, 1500, 11]}, image: "templates/btn_attach.png", unique: true, wait: 3, learned: "off"}
 
   - id: "6"
     say: "[저장] 클릭"

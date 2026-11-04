@@ -30,7 +30,7 @@ from pathlib import Path
 
 from . import config, macros, status
 
-ERROR_WORDS = ["체납", "오류", "실패", "할 수 없", "불가", "누락", "미납"]
+ERROR_WORDS = ["체납", "오류", "실패", "할 수 없", "불가", "누락", "미납", "존재하지 않"]
 
 
 class Stop(Exception):
@@ -535,6 +535,8 @@ class Screen:
     DIALOGS = (
         ("Confirm", "templates/dlg_confirm_title.png", "templates/btn_dlg_ok_confirm.png", (-40, 35, 260, 95)),
         ("알림", "templates/dlg_alert_title.png", "templates/btn_dlg_ok_alert.png", (-40, 35, 440, 140)),
+        # v2.2.5 — 제목이 영어 「Alert」인 주황 창(11/4 녹화 00:24 「비용신청 가능한 참여업체가 존재하지 않습니다.」)
+        ("Alert", "templates/dlg_alert_en_title.png", "templates/btn_dlg_ok_alert.png", (48, 48, 330, 84)),
     )
 
     def dialog(self):
@@ -757,12 +759,14 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
                "업체": [b.get("사업장명", "") for b in businesses], "빠진업체": left_out, "불가업체": []}
     plan = _flatten(spec["steps"], manifest, businesses)
     summary["단계수"] = len(plan)
-    # v2.2.4 기본 매크로처럼 최종 신청(confirm) 단계가 없으면 [저장]까지만 한다 — 끝나도 「신청완료」가 아니라 「저장완료」
+    # v2.2.4~ 기본 매크로처럼 최종 신청(confirm) 단계가 없으면 [저장]까지만 한다 — 끝나도 「신청완료」가 아니라 「저장완료」
     to_save = not any(s.get("confirm") for s, _v in plan)
     if to_save:
         summary["범위"] = "저장까지"
+    has_reg = any(s.get("id", "").startswith("4") for s, _v in plan)
     print(f"[{mode}] {mmeta['표시명']} · {course} {rnd}회차 — 업체 {len(businesses)}곳, {len(plan)}단계"
-          + (" · 증빙 첨부 → [저장]까지 (훈련비용 신청은 하지 않음)" if to_save else ""), flush=True)
+          + ((" · 비용등록 → 증빙 첨부 → [저장]까지 (고용보험확인·훈련비용 신청은 하지 않음)" if has_reg
+              else " · 증빙 첨부 → [저장]까지 (훈련비용 신청은 하지 않음)") if to_save else ""), flush=True)
     if left_out:
         print("  이번에 뺀 업체: " + ", ".join(left_out), flush=True)
     status.record(keys, f01=mmeta["id"], f02=mmeta["표시명"], f03=mode, f04=summary["시작"], f05="",
@@ -952,7 +956,8 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         if not found and step.get("expect"):
             # 저장 확인창을 못 보고 넘어가면 저장이 안 된 채 다음으로 간다(10/30 22단계) — 멈춘다
             _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 확인창(Confirm/알림)이 보이지 않습니다 — {say}")
-        if found and any(w in text for w in ERROR_WORDS):
+        # 윈도우 OCR 은 띄어쓰기를 빼고 읽는다(11/4 「존재하지않습니다」) → 공백을 지우고 비교
+        if found and any(w.replace(" ", "") in re.sub(r"\s", "", text) for w in ERROR_WORDS):
             if vals.get("_key"):
                 raise SkipCompany(f"{sid} 알림: {text[:120]}")
             if "체납" in text or "미납" in text:
@@ -1004,9 +1009,13 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         until = {"image": step.get("until"), "unique": True}
         notches = int(step.get("notches", 5))
         turns = 0
+        if step.get("from_top") and not scr.find(until):
+            # 4-0 (v2.2.5): 앞 업체 팝업을 닫은 뒤 화면이 이미 아래로 내려가 있으면 [비용등록]이 위로 지나가 있다 → 맨 위로 올린 뒤 내린다
+            scr.scroll(spot, int(step["from_top"]))
+            time.sleep(0.4)
         while not scr.find(until):
             if turns >= int(step.get("max", 12)):
-                _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 아래로 내려도 「첨부파일 목록」이 보이지 않습니다 — {say}")
+                _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 아래로 내려도 찾는 칸이 보이지 않습니다 — {say}")
             scr.scroll(spot, -notches)
             turns += 1
             time.sleep(0.4)

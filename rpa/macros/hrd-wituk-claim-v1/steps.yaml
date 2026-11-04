@@ -1,7 +1,7 @@
-# HRD-Net 위탁 비용신청 v1(기본 · 증빙 첨부·저장까지, v2.2.4) — PPT「HRD-net 비용신청 프로세스_화면캡쳐(1019)」+「아직수동클릭해야하는부분」(1029) 반영
+# HRD-Net 위탁 비용신청 v1(기본 · 비용등록·증빙 첨부·저장까지, v2.2.5) — PPT「HRD-net 비용신청 프로세스_화면캡쳐(1019)」+「아직수동클릭해야하는부분」(1029) 반영
 #
 # action: focus | click | type | check | attach | wait | screenshot
-#         scroll (anchor 그림 기준 at 자리에서 휠을 굴려 until 그림이 보일 때까지 — v2.2.4)
+#         scroll (anchor 그림 기준 at 자리에서 휠을 굴려 until 그림이 보일 때까지 — v2.2.4 · from_top: 먼저 위로 몇 칸 올릴지 — v2.2.5)
 #         search_company (관리번호 검색 → 업체명 확인 → 체크) | alert (알림창 글자 판정 후 [확인])
 #         verify_errors (훈련인원 오류여부 Y 확인, 사람에게 묻지 않음) | verify_done (신청 완료 확인)
 #         menu_search (우측 상단 메뉴검색으로 화면 이동) | click_round_row (실시회차가 맞는 '신청대상' 행의 [신청])
@@ -87,9 +87,86 @@ steps:
     status_image: "templates/status_target.png"   # 「신청대상」 글자 그림 (없으면 OCR)
     list_wait: 10                         # [검색] 뒤 목록·[신청] 버튼이 뜰 때까지 최대 몇 초 기다릴지
 
-  # v2.2.4 — 담당자 요청(11/3)으로 【비용등록 → 업체·훈련생 체크 → 산출액 → 저장】과 [고용보험확인]·[훈련비용 신청]을 뺐다.
-  # 이 매크로는 [신청] → 증빙 첨부 → 상단 [저장]까지 한다. 31단계 원본은 macros/hrd-wituk-claim-full.
-  # 담당자 창(1400×1032)에서는 상세(위탁) 화면의 「첨부파일 목록」이 화면 아래에 가려 있다(11/3 4단계 멈춤 원인) → 먼저 굴려 내린다.
+  # v2.2.5 — 11/4 테스트: 비용등록 없이 [저장]하면 「Alert — 비용신청 가능한 참여업체가 존재하지 않습니다」(저장 안 됨).
+  # 담당자 요청(11/4)으로 【비용등록 → 업체 체크 → 훈련생 체크 → 산출액 → 저장】을 되살렸다. [고용보험확인]은 빼고, [훈련비용 신청]은 담당자가 한다.
+  # 담당자 창(1400×1032)에서는 [비용등록]이 화면 아래에 가려 있다(11/3 4단계 멈춤 원인) → 4-0 에서 보일 때까지 조금씩 굴린다.
+  # 4-0 은 업체마다 한다: 팝업을 닫은 뒤 화면이 맨 위로 돌아가도 다음 업체의 [비용등록]을 다시 찾는다(이미 보이면 굴리지 않음).
+  # 휠 한 칸 ≈ 116px 이상, [비용등록]은 맨 위 화면 기준 y≈1088 → 2칸씩 굴리면 지나치지 않고 보인다(11/4 진단 083811·083827).
+  # 팝업 그림은 10/30 녹화(같은 창 1400)에서 잘랐고 v2.2.5 에서 다시 대조했다(제목줄 기준 영역 안에서 각 1곳).
+  - id: "4-x"
+    for_each: 사업장
+    steps:
+      - id: "4-0"
+        say: "상세(위탁) 화면을 조금 내려 「참여업체별 비용신청 현황」 [비용등록]이 보이게"
+        action: scroll
+        anchor: {image: "templates/btn_save_main.png", unique: true, wait: 15}   # 상단 [저장] — 상세 화면이 떴는지
+        at: [-744, 368]                       # [저장] 기준 본문 왼쪽 여백에서 휠을 굴린다
+        until: "templates/btn_cost_register_main.png"
+        from_top: 40                          # 안 보이면 먼저 맨 위로 올린다(앞 업체 뒤 화면이 아래에 있을 때)
+        notches: 2
+        max: 8
+      - id: "4"
+        say: "참여업체별 비용신청 현황 → [비용등록] 클릭 (참여 업체 목록 팝업) — {사업장명}"
+        action: click
+        target: {image: "templates/btn_cost_register_main.png", unique: true, wait: 10, learned: "off"}
+      - id: "4-1"
+        say: "참여 업체 목록 — 사업장관리번호 {사업장관리번호} 행 체크 (사업장목록)"
+        action: search_company
+        popup: {scope_image: {image: "templates/popup_company_title.png", box: [-80, -30, 800, 780]}, image: "templates/popup_company_title.png", wait: 8}
+        input: {scope_image: {image: "templates/popup_company_title.png", box: [-20, 385, 100, 415]}, image: [{image: "templates/lbl_bizno.png", offset: [111, 0]}], unique: true}
+        search_button: {scope_image: {image: "templates/popup_company_title.png", box: [640, 375, 740, 425]}, image: "templates/btn_search_popup.png", unique: true}
+        rows: {scope_image: {image: "templates/popup_company_title.png"}, col: [-45, 492, -20, 712], number: [343, -8, 443, 8]}
+      - id: "4-2"
+        say: "비용신청대상 사업장에서 {사업장명} 행 체크"
+        action: check_company_row
+        rows: {scope_image: {image: "templates/popup_company_title.png"}, col: [-20, 112, 5, 305], number: [560, -8, 720, 8]}
+      - id: "4-3"
+        say: "팝업 안의 [비용등록] 클릭"
+        action: click
+        target: {scope_image: {image: "templates/popup_company_title.png", box: [500, 45, 640, 90]}, image: "templates/btn_cost_register_popup.png", unique: true, learned: "off"}
+      - id: "4-3m"
+        say: "비용등록 팝업 최대화 (작게 열리면 신청액 칸이 잘림)"
+        action: maximize
+        target: {image: "templates/costreg_title.png", unique: true, scope: "비용등록", wait: 10, learned: "off"}
+      - id: "4-4e"
+        say: "훈련인원 현황 오류여부 확인 — 빨간 Y 가 있으면 이 업체만 신청불가 (묻지 않음, 체크 전에 본다)"
+        action: verify_errors
+        error_header: "templates/hdr_error.png"
+        row_header: "templates/hdr_seq_name.png"
+        wait: 8
+      - id: "4-4"
+        say: "훈련인원 현황 헤더 전체 체크 (훈련생 체크)"
+        action: check
+        target: {scope_image: {image: "templates/hdr_seq_name.png", box: [-80, -12, -50, 12]}, image: ["templates/checkbox_empty.png", "templates/checkbox_checked.png"], unique: true, wait: 10, learned: "off"}
+      - id: "4-5"
+        say: "[산출액→신청액] 클릭 → 신청액 총액 = 산출액 총액 확인 ({신청금액}원)"
+        action: click
+        verify_amount: true
+        computed_label: "templates/lbl_calc_total.png"
+        applied_label: "templates/lbl_apply_total.png"
+        target: {image: "templates/btn_calc_to_apply.png", unique: true, scope: "비용등록", learned: "off"}
+      - id: "4-6"
+        say: "비용등록 팝업 [저장] 클릭"
+        action: click
+        target: {scope_image: {image: "templates/costreg_title.png", box: [-60, 25, 1950, 70]}, image: "templates/btn_save_costreg.png", unique: true, learned: "off"}
+      - id: "4-6a"
+        say: "저장 확인창 [확인] → '저장되었습니다' 알림 [확인]"
+        action: alert
+        expect: true
+        seconds: 6
+      - id: "4-s"
+        say: "비용등록 팝업 [닫기] (열려 있으면)"
+        action: click
+        on_skip: true
+        skip_if_missing: true
+        target: {scope_image: {image: "templates/costreg_title.png", box: [-60, 25, 1950, 70]}, image: "templates/btn_close_costreg.png", unique: true, wait: 2, learned: "off"}
+      - id: "4-7"
+        say: "참여 업체 목록 [닫기] → 비용신청관리 상세(위탁)로 돌아옴"
+        action: click
+        on_skip: true
+        target: {scope_image: {image: "templates/popup_company_title.png", box: [650, 15, 740, 50]}, image: "templates/btn_popup_close.png", unique: true, wait: 3, learned: "off"}
+
+  # 비용등록이 끝나면 「첨부파일 목록」까지 내린다(화면이 어디에 있든 「숙박비 관련」 행이 보일 때까지).
   - id: "5-0"
     say: "비용신청관리 상세(위탁) 화면을 아래로 내려 「첨부파일 목록」이 보이게"
     action: scroll
@@ -131,7 +208,7 @@ steps:
     seconds: 6
 
   - id: "6-s"
-    say: "저장 뒤 화면 저장 — 여기까지가 매크로. 비용등록·고용보험확인·훈련비용 신청은 담당자가 한다"
+    say: "저장 뒤 화면 저장 — 여기까지가 매크로. 고용보험확인·훈련비용 신청은 담당자가 한다"
     action: screenshot
 
   - id: "10"

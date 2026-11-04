@@ -49,7 +49,7 @@ def automation_check(shot_path=None) -> list[str]:
     from . import macros, ocr
     from .upload import Screen
 
-    out = ["### 자동화 판정 (v2.2.4 — 찾기만 함, 누르지 않음)"]
+    out = ["### 자동화 판정 (v2.2.5 — 찾기만 함, 누르지 않음)"]
     try:
         mdir = macros.path()
         spec = macros.spec(mdir.name)
@@ -114,13 +114,17 @@ def _later_steps(scr, spec: dict) -> list[str]:
     for s in spec.get("steps", []):
         for sub in s.get("steps", [s]) if isinstance(s, dict) else []:
             flat[sub.get("id")] = sub
-    out = ["", "### [신청] 이후 (v2.2.4 — 찾기만 함, 누르지 않음)"]
+    out = ["", "### [신청] 이후 (v2.2.5 — 찾기만 함, 누르지 않음)"]
+    if flat.get("4-0"):
+        step = flat["4-0"]
+        seen = scr.find({"image": step.get("until"), "unique": True})
+        out.append("단계 4-0   참여업체별 비용신청 현황 [비용등록]: " + ("보임" if seen else "안 보임 → 매크로가 아래로 굴려 찾습니다"))
     if flat.get("5-0"):
         step = flat["5-0"]
         seen = scr.find({"image": step.get("until"), "unique": True})
         out.append("단계 5-0   첨부파일 목록(「숙박비 관련」 행): " + ("보임" if seen else "안 보임 → 매크로가 아래로 굴려 찾습니다"))
     for sid in ("4", "4-3", "4-3m", "4-4", "4-5", "4-6", "4-s", "4-7", "5-1", "5-2", "6", "7", "8"):
-        if sid not in flat:          # v2.2.4 기본 매크로에는 4·7·8 단계가 없다
+        if sid not in flat:          # v2.2.5 기본 매크로에는 7·8 단계가 없다
             continue
         step = flat[sid]
         hit = scr.find(dict(step.get("target") or {}, wait=0))
