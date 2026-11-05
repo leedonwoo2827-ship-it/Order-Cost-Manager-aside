@@ -409,9 +409,40 @@ class Screen:
             pyautogui.click(*el)
 
     def scroll(self, at: tuple[int, int], notches: int):
-        """at 자리에 마우스를 두고 휠을 굴린다(음수 = 아래로). 한 칸 = 120."""
+        """at 자리에 마우스를 두고 휠을 굴린다(음수 = 아래로). 한 칸 = 120.
+        ※ 담당자 PC 의 HRD-Net 은 휠 한 번에 맨 아래까지 간다(11/4·11/5) — 중간에 세워야 하면 scroll by: arrow."""
         from pywinauto import mouse
         mouse.scroll(coords=at, wheel_dist=notches)
+
+    def snap(self, rect: tuple[int, int, int, int]):
+        """영역을 작게 줄인 흑백 배열 — 스크롤 전후로 화면이 움직였는지 비교한다(같은 PC·같은 영역끼리만)."""
+        if self.simulate:
+            return None
+        import numpy as np
+        l, t, r, b = self._region(rect)
+        if r - l < 8 or b - t < 8:
+            return None
+        img = self.grab(l, t, r, b).convert("L").resize((max(1, (r - l) // 4), max(1, (b - t) // 4)))
+        return np.asarray(img, dtype=np.int16)
+
+    @staticmethod
+    def same(a, b) -> bool:
+        if a is None or b is None or a.shape != b.shape:
+            return False
+        import numpy as np
+        return float(np.abs(a - b).mean()) < 0.5
+
+    @staticmethod
+    def wheel_lines():
+        """Windows 마우스 휠 한 칸에 몇 줄 내리는지(제어판 설정) — 진단 기록용. '한 화면씩'이면 그렇게 적는다."""
+        try:
+            import ctypes
+            v = ctypes.c_uint(0)
+            if ctypes.windll.user32.SystemParametersInfoW(0x0068, 0, ctypes.byref(v), 0):   # SPI_GETWHEELSCROLLLINES
+                return "한 화면씩" if v.value == 0xFFFFFFFF else int(v.value)
+        except Exception:  # noqa: BLE001
+            pass
+        return None
 
     def type(self, text: str):
         from pywinauto.keyboard import send_keys
@@ -1007,6 +1038,12 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         dx, dy = step.get("at") or (0, 300)
         spot = (anchor[1][0] + scr.px(dx), anchor[1][1] + scr.px(dy))
         until = {"image": step.get("until"), "unique": True}
+        if step.get("by") == "arrow":
+            _scroll_by_arrow(scr, step, anchor[1], spot, until, d, name, sid, summary, rec, say)
+            rec["result"] = "자동"
+            summary["자동"] += 1
+            print(f"  {sid:6} {'자동':10} {say} ({rec.get('방식', '')})", flush=True)
+            return
         notches = int(step.get("notches", 5))
         turns = 0
         if step.get("from_top") and not scr.find(until):
@@ -1208,6 +1245,86 @@ def _after_click(scr: Screen, sid: str, vals: dict, rec: dict) -> None:
             if vals.get("_key"):
                 raise SkipCompany(f"{sid} 뒤 알림: {pop[:120]}")
             raise Stop(f"{sid} 뒤 알림: {pop[:120]}")
+
+
+def _scroll_by_arrow(scr: Screen, step: dict, anchor_xy: tuple[int, int], spot: tuple[int, int], until: dict,
+                     d: dict, name: str, sid: str, summary: dict, rec: dict, say: str) -> None:
+    """4-0 (v2.2.6): 스크롤바 ▼ 화살표를 한 번씩 눌러 until 그림이 보이면 멈춘다.
+    11/4·11/5 녹화: 담당자 PC 의 HRD-Net 은 휠 한 번(2칸이든 5칸이든)에 맨 위 → 맨 아래(약 1,012px)로 간다.
+    [비용등록]은 스크롤이 123~928px 사이일 때만 보이는데 휠은 그 구간을 건너뛴다 → 화살표로 조금씩 내린다.
+    순서: 이미 보임 → 맨 위로(휠 위로, 넘쳐도 맨 위에서 멈춤) → ▼ 한 번씩 → (▼ 가 없거나 안 움직이면) 스크롤바 빈 칸
+    → (바닥까지 갔는데 없으면) ▲ 한 번씩 → 그래도 없으면 화면을 찍고 멈춘다(사람에게 넘기지 않음)."""
+    rec["휠줄수"] = scr.wheel_lines()
+    if scr.find(until):
+        rec["방식"], rec["굴림"] = "이미 보임", 0
+        return
+    if step.get("from_top"):
+        scr.scroll(spot, int(step["from_top"]))
+        time.sleep(0.4)
+        if scr.find(until):
+            rec["방식"], rec["굴림"] = "맨 위로 올리니 보임", 0
+            return
+    ax, ay = anchor_xy
+    l, t, r, b = (scr.px(v) for v in step.get("body_box") or (-790, 20, 300, 840))
+    body = (ax + l, ay + t, ax + r, ay + b)        # 스크롤되는 본문(스크롤바 왼쪽) — 움직였는지 비교
+    anchor_img = (step.get("anchor") or {}).get("image")
+    pause = float(step.get("click_pause", 0.3))
+    limit = int(step.get("max", 80))
+    log: list[str] = []
+
+    def arrow(key: str, box_key: str, box: list) -> tuple | None:
+        if not step.get(key):
+            return None
+        return scr.find({"scope_image": {"image": anchor_img, "box": step.get(box_key) or box},
+                         "image": step[key], "unique": True, "wait": 5, "learned": "off"})
+
+    def walk(hit, n_max: int, label: str) -> tuple[str, int]:
+        """hit 자리를 한 번씩 누르며 until 확인 → ('보임'|'그대로'|'끝', 움직인 횟수)"""
+        same = moved = 0
+        for n in range(1, n_max + 1):
+            before = scr.snap(body)
+            scr.click(hit)
+            time.sleep(pause)
+            if scr.find(until):
+                log.append(f"{label} {n}번 → 보임")
+                return "보임", moved + 1
+            if scr.same(before, scr.snap(body)):
+                same += 1
+                if same >= 3:                       # 3번 연속 그대로 = 끝에 닿았거나 눌러도 안 움직임
+                    log.append(f"{label} {n}번 → 더 안 움직임")
+                    return "그대로", moved
+            else:
+                same, moved = 0, moved + 1
+        log.append(f"{label} {n_max}번 → 못 찾음")
+        return "끝", moved
+
+    def done() -> None:
+        rec["방식"] = " · ".join(log)
+
+    down = arrow("arrow_img", "arrow_box", [250, 600, 360, 900])
+    moved = 0
+    if down:
+        res, moved = walk(down, limit, "▼")
+        if res == "보임":
+            return done()
+    else:
+        log.append("▼ 화살표 못 찾음")
+    if moved == 0:
+        # ▼ 가 없거나 눌러도 안 움직임 → 스크롤바 빈 칸(손잡이 아래)을 눌러 한 화면씩 내린다
+        tx, ty = step.get("track_at") or (307, 700)
+        res, _ = walk(("image", (ax + scr.px(tx), ay + scr.px(ty))), 3, "스크롤바 빈 칸")
+        if res == "보임":
+            return done()
+    up = arrow("arrow_up_img", "arrow_up_box", [250, -20, 360, 80])
+    if up:
+        res, _ = walk(up, limit, "▲")
+        if res == "보임":
+            return done()
+    else:
+        log.append("▲ 화살표 못 찾음")
+    done()
+    _stop_missing(scr, d, name, sid, summary, rec,
+                  f"{sid}: 스크롤바로 위아래를 다 봐도 찾는 칸이 보이지 않습니다 ({rec['방식']}) — {say}")
 
 
 def _stop_missing(scr: Screen, d: dict, name: str, sid: str, summary: dict, rec: dict, why: str) -> None:

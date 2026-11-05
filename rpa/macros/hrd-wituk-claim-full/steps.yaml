@@ -95,12 +95,17 @@ steps:
       - id: "4-0"
         say: "상세(위탁) 화면을 조금 내려 「참여업체별 비용신청 현황」 [비용등록]이 보이게 (v2.2.5, 창 1400)"
         action: scroll
-        anchor: {image: "templates/btn_save_main.png", unique: true, wait: 15}
-        at: [-744, 368]
+        by: arrow                             # v2.2.6 — 휠 대신 스크롤바 ▼ 화살표를 한 번씩 (휠 한 번 = 맨 아래까지, 11/4·11/5 녹화)
+        anchor: {image: "templates/btn_save_main.png", unique: true, wait: 15}   # 상단 [저장] — 상세 화면이 떴는지
+        at: [-744, 368]                       # 맨 위로 올릴 때 휠을 굴리는 본문 왼쪽 여백
         until: "templates/btn_cost_register_main.png"
-        from_top: 40                          # 안 보이면 먼저 맨 위로 올린다(앞 업체 뒤 화면이 아래에 있을 때)
-        notches: 2
-        max: 8
+        from_top: 40                          # 안 보이면 먼저 맨 위로 올린다(위로는 넘쳐도 맨 위에서 멈춤)
+        arrow_img: "templates/sb_arrow_down.png"      # 스크롤바 ▼ — [저장] 기준 (+307, +840)에 1곳 (11/4·11/5 프레임 전부)
+        arrow_box: [250, 600, 360, 900]
+        arrow_up_img: "templates/sb_arrow_up.png"     # 스크롤바 ▲ — [저장] 기준 (+307, +23)
+        arrow_up_box: [250, -20, 360, 80]
+        track_at: [307, 700]                  # ▼ 가 안 들으면 스크롤바 빈 칸(손잡이 아래)을 눌러 한 화면 내림
+        max: 80
       - id: "4"
         say: "참여업체별 비용신청 현황 → [비용등록] 클릭 (참여 업체 목록 팝업) — {사업장명}"
         action: click

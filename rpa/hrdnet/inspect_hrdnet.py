@@ -49,7 +49,7 @@ def automation_check(shot_path=None) -> list[str]:
     from . import macros, ocr
     from .upload import Screen
 
-    out = ["### 자동화 판정 (v2.2.5 — 찾기만 함, 누르지 않음)"]
+    out = ["### 자동화 판정 (v2.2.6 — 찾기만 함, 누르지 않음)"]
     try:
         mdir = macros.path()
         spec = macros.spec(mdir.name)
@@ -114,11 +114,20 @@ def _later_steps(scr, spec: dict) -> list[str]:
     for s in spec.get("steps", []):
         for sub in s.get("steps", [s]) if isinstance(s, dict) else []:
             flat[sub.get("id")] = sub
-    out = ["", "### [신청] 이후 (v2.2.5 — 찾기만 함, 누르지 않음)"]
+    out = ["", "### [신청] 이후 (v2.2.6 — 찾기만 함, 누르지 않음)"]
     if flat.get("4-0"):
         step = flat["4-0"]
         seen = scr.find({"image": step.get("until"), "unique": True})
-        out.append("단계 4-0   참여업체별 비용신청 현황 [비용등록]: " + ("보임" if seen else "안 보임 → 매크로가 아래로 굴려 찾습니다"))
+        out.append("단계 4-0   참여업체별 비용신청 현황 [비용등록]: " + ("보임" if seen else "안 보임 → 매크로가 아래로 내려 찾습니다"))
+        if step.get("by") == "arrow":
+            # v2.2.6 — 4-0 은 휠 대신 스크롤바 ▼ 를 한 번씩 누른다(담당자 PC: 휠 한 번 = 맨 아래까지)
+            anchor_img = (step.get("anchor") or {}).get("image")
+            for key, box_key, label in (("arrow_img", "arrow_box", "▼"), ("arrow_up_img", "arrow_up_box", "▲")):
+                hit = scr.find({"scope_image": {"image": anchor_img, "box": step.get(box_key)},
+                                "image": step.get(key), "unique": True, "learned": "off"})
+                out.append(f"단계 4-0   스크롤바 {label} 화살표: " + (f"찾음 {hit[1]}" if hit else "못 찾음 (상세(위탁) 화면이 아니면 정상)"))
+        lines = scr.wheel_lines() if hasattr(scr, "wheel_lines") else None
+        out.append(f"Windows 마우스 휠 한 칸 = {lines}{'줄' if isinstance(lines, int) else ''} (진단용 — 바꾸지 않아도 됨)")
     if flat.get("5-0"):
         step = flat["5-0"]
         seen = scr.find({"image": step.get("until"), "unique": True})
