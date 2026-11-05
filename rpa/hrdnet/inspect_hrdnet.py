@@ -131,7 +131,8 @@ def _later_steps(scr, spec: dict) -> list[str]:
     if flat.get("5-0"):
         step = flat["5-0"]
         seen = scr.find({"image": step.get("until"), "unique": True})
-        out.append("단계 5-0   첨부파일 목록(「숙박비 관련」 행): " + ("보임" if seen else "안 보임 → 매크로가 아래로 굴려 찾습니다"))
+        out.append("단계 5-0   첨부파일 목록(「숙박비 관련」 행): " + ("보임" if seen else "안 보임 → 매크로가 "
+                   + ("스크롤바 ▼ 로 내려 찾습니다" if step.get("by") == "arrow" else "아래로 굴려 찾습니다")))
     for sid in ("4", "4-3", "4-3m", "4-4", "4-5", "4-6", "4-s", "4-7", "5-1", "5-2", "6", "7", "8"):
         if sid not in flat:          # v2.2.5 기본 매크로에는 7·8 단계가 없다
             continue

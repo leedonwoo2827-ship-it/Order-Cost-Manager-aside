@@ -225,7 +225,7 @@ ipcMain.handle('rpa:launch', () => {
 });
 
 // rpa/hrdnet/web/server.py ENGINE_VERSION 과 같아야 한다 — 다르면 떠 있는 예전 엔진을 끄고 새로 켠다
-const RPA_ENGINE_VERSION = '2026-11-05.1';
+const RPA_ENGINE_VERSION = '2026-11-05.2';
 
 // 8820 포트를 잡고 있는 엔진 프로세스를 끈다 (예전 엔진에는 끄는 API 가 없어서 포트로 찾는다)
 function stopOldEngine() {

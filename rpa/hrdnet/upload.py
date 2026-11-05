@@ -408,6 +408,12 @@ class Screen:
             import pyautogui
             pyautogui.click(*el)
 
+    def park(self, at: tuple[int, int]):
+        """마우스를 at 으로 비켜 둔다 — 포인터가 체크칸을 덮으면 그 행을 체크칸으로 못 알아본다
+        (11/5 13:09 녹화 17.0~18.8초: 체크한 행이 목록에서 빠짐. 11:49 는 같은 행을 놓쳐 업체 불가)."""
+        import pyautogui
+        pyautogui.moveTo(*at)
+
     def scroll(self, at: tuple[int, int], notches: int):
         """at 자리에 마우스를 두고 휠을 굴린다(음수 = 아래로). 한 칸 = 120.
         ※ 담당자 PC 의 HRD-Net 은 휠 한 번에 맨 아래까지 간다(11/4·11/5) — 중간에 세워야 하면 scroll by: arrow."""
@@ -1176,6 +1182,7 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         if not (box_check and scr.is_checked(hit[1])):     # 이미 체크된 칸을 누르면 풀린다
             scr.click(hit)
         if box_check:
+            scr.park((hit[1][0] - scr.px(60), hit[1][1]))   # 포인터가 체크칸을 덮으면 체크 표시를 못 본다
             time.sleep(0.5)
             if not scr.is_checked(hit[1]):
                 _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: 체크칸을 눌렀는데 체크되지 않았습니다 — {say}")
@@ -1249,21 +1256,16 @@ def _after_click(scr: Screen, sid: str, vals: dict, rec: dict) -> None:
 
 def _scroll_by_arrow(scr: Screen, step: dict, anchor_xy: tuple[int, int], spot: tuple[int, int], until: dict,
                      d: dict, name: str, sid: str, summary: dict, rec: dict, say: str) -> None:
-    """4-0 (v2.2.6): 스크롤바 ▼ 화살표를 한 번씩 눌러 until 그림이 보이면 멈춘다.
+    """4-0 (v2.2.6) · 5-0 (v2.2.7): 스크롤바 ▼ 화살표를 한 번씩 눌러 until 그림이 보이면 멈춘다.
     11/4·11/5 녹화: 담당자 PC 의 HRD-Net 은 휠 한 번(2칸이든 5칸이든)에 맨 위 → 맨 아래(약 1,012px)로 간다.
     [비용등록]은 스크롤이 123~928px 사이일 때만 보이는데 휠은 그 구간을 건너뛴다 → 화살표로 조금씩 내린다.
-    순서: 이미 보임 → 맨 위로(휠 위로, 넘쳐도 맨 위에서 멈춤) → ▼ 한 번씩 → (▼ 가 없거나 안 움직이면) 스크롤바 빈 칸
-    → (바닥까지 갔는데 없으면) ▲ 한 번씩 → 그래도 없으면 화면을 찍고 멈춘다(사람에게 넘기지 않음)."""
+    5-0 (v2.2.7): 11/5 13:09 녹화 — 비용등록 팝업을 닫은 뒤에는 휠을 60칸 굴려도 본문이 1px 도 안 움직였다
+    (11/4 은 [신청] 직후라 휠이 들었다). 같은 실행에서 ▼ 클릭은 들었다 → 5-0 도 ▼ 로 내린다.
+    순서: 이미 보임 → 맨 위로(from_top, 휠 위로) → ▼ 한 번씩 → (▼ 가 없거나 안 움직이면) 스크롤바 빈 칸
+    → (바닥까지 갔는데 없으면) ▲ 한 번씩 → 그래도 없으면 화면을 찍고 멈춘다(사람에게 넘기지 않음).
+    to_bottom: 보인 뒤에도 ▼ 를 더 눌러 바닥까지(첨부파일 목록 전체가 보이게 — 휠 extra 대신).
+    바닥에서 until 이 안 보이면 ▲ 로 올라가며 다시 찾는다."""
     rec["휠줄수"] = scr.wheel_lines()
-    if scr.find(until):
-        rec["방식"], rec["굴림"] = "이미 보임", 0
-        return
-    if step.get("from_top"):
-        scr.scroll(spot, int(step["from_top"]))
-        time.sleep(0.4)
-        if scr.find(until):
-            rec["방식"], rec["굴림"] = "맨 위로 올리니 보임", 0
-            return
     ax, ay = anchor_xy
     l, t, r, b = (scr.px(v) for v in step.get("body_box") or (-790, 20, 300, 840))
     body = (ax + l, ay + t, ax + r, ay + b)        # 스크롤되는 본문(스크롤바 왼쪽) — 움직였는지 비교
@@ -1278,14 +1280,15 @@ def _scroll_by_arrow(scr: Screen, step: dict, anchor_xy: tuple[int, int], spot: 
         return scr.find({"scope_image": {"image": anchor_img, "box": step.get(box_key) or box},
                          "image": step[key], "unique": True, "wait": 5, "learned": "off"})
 
-    def walk(hit, n_max: int, label: str) -> tuple[str, int]:
-        """hit 자리를 한 번씩 누르며 until 확인 → ('보임'|'그대로'|'끝', 움직인 횟수)"""
+    def walk(hit, n_max: int, label: str, stop_on_seen: bool = True) -> tuple[str, int]:
+        """hit 자리를 한 번씩 누르며 until 확인 → ('보임'|'그대로'|'끝', 움직인 횟수).
+        stop_on_seen=False 면 보여도 멈추지 않고 끝(3번 연속 그대로)까지 누른다(to_bottom)."""
         same = moved = 0
         for n in range(1, n_max + 1):
             before = scr.snap(body)
             scr.click(hit)
             time.sleep(pause)
-            if scr.find(until):
+            if stop_on_seen and scr.find(until):
                 log.append(f"{label} {n}번 → 보임")
                 return "보임", moved + 1
             if scr.same(before, scr.snap(body)):
@@ -1298,33 +1301,59 @@ def _scroll_by_arrow(scr: Screen, step: dict, anchor_xy: tuple[int, int], spot: 
         log.append(f"{label} {n_max}번 → 못 찾음")
         return "끝", moved
 
-    def done() -> None:
+    def stop() -> None:
         rec["방식"] = " · ".join(log)
+        _stop_missing(scr, d, name, sid, summary, rec,
+                      f"{sid}: 스크롤바로 위아래를 다 봐도 찾는 칸이 보이지 않습니다 ({rec['방식']}) — {say}")
 
-    down = arrow("arrow_img", "arrow_box", [250, 600, 360, 900])
-    moved = 0
-    if down:
-        res, moved = walk(down, limit, "▼")
-        if res == "보임":
-            return done()
-    else:
-        log.append("▼ 화살표 못 찾음")
-    if moved == 0:
-        # ▼ 가 없거나 눌러도 안 움직임 → 스크롤바 빈 칸(손잡이 아래)을 눌러 한 화면씩 내린다
-        tx, ty = step.get("track_at") or (307, 700)
-        res, _ = walk(("image", (ax + scr.px(tx), ay + scr.px(ty))), 3, "스크롤바 빈 칸")
-        if res == "보임":
-            return done()
-    up = arrow("arrow_up_img", "arrow_up_box", [250, -20, 360, 80])
-    if up:
-        res, _ = walk(up, limit, "▲")
-        if res == "보임":
-            return done()
-    else:
-        log.append("▲ 화살표 못 찾음")
-    done()
-    _stop_missing(scr, d, name, sid, summary, rec,
-                  f"{sid}: 스크롤바로 위아래를 다 봐도 찾는 칸이 보이지 않습니다 ({rec['방식']}) — {say}")
+    def go_up() -> bool:
+        up = arrow("arrow_up_img", "arrow_up_box", [250, -20, 420, 80])
+        if not up:
+            log.append("▲ 화살표 못 찾음")
+            return False
+        return walk(up, limit, "▲")[0] == "보임"
+
+    def seek() -> bool:
+        """아직 안 보일 때: 맨 위로(선택) → ▼ → 빈 칸 → ▲"""
+        if step.get("from_top"):
+            scr.scroll(spot, int(step["from_top"]))
+            time.sleep(0.4)
+            if scr.find(until):
+                log.append("맨 위로 올리니 보임")
+                return True
+        down = arrow("arrow_img", "arrow_box", [250, 600, 420, 900])
+        moved = 0
+        if down:
+            res, moved = walk(down, limit, "▼")
+            if res == "보임":
+                return True
+        else:
+            log.append("▼ 화살표 못 찾음")
+        if moved == 0:
+            # ▼ 가 없거나 눌러도 안 움직임 → 스크롤바 빈 칸(손잡이 아래)을 눌러 한 화면씩 내린다
+            # v2.2.7: x 는 찾은 ▼ 와 같은 줄 — 비용등록 뒤에는 상단 버튼이 늘어 [저장]이 52px 왼쪽으로 간다(11/5 13:09)
+            tx, ty = step.get("track_at") or (307, 700)
+            track_x = down[1][0] if down else ax + scr.px(tx)
+            if walk(("image", (track_x, ay + scr.px(ty))), 3, "스크롤바 빈 칸")[0] == "보임":
+                return True
+        return go_up()
+
+    if scr.find(until):
+        log.append("이미 보임")
+    elif not seek():
+        return stop()
+
+    if step.get("to_bottom"):
+        down = arrow("arrow_img", "arrow_box", [250, 600, 420, 900])
+        if down:
+            walk(down, limit, "바닥까지 ▼", stop_on_seen=False)
+            if not scr.find(until):
+                log.append("바닥에서 안 보임")
+                if not go_up():
+                    return stop()
+        else:
+            log.append("바닥까지: ▼ 못 찾음(그대로 둠)")
+    rec["방식"] = " · ".join(log)
 
 
 def _stop_missing(scr: Screen, d: dict, name: str, sid: str, summary: dict, rec: dict, why: str) -> None:
@@ -1337,24 +1366,32 @@ def _stop_missing(scr: Screen, d: dict, name: str, sid: str, summary: dict, rec:
 
 
 def _company_rows(scr: Screen, step: dict, key: str, wait: float = 0) -> list[dict]:
-    """step[key] = {scope_image, col:[l,t,r,b](기준점 기준 체크칸 열), number:[l,t,r,b](체크칸 기준 관리번호 칸)} → 행 목록."""
+    """step[key] = {scope_image, col:[l,t,r,b](기준점 기준 체크칸 열), number:[l,t,r,b](체크칸 기준 관리번호 칸)} → 행 목록.
+    wait > 0 (v2.2.7): 마우스를 팝업 제목으로 비켜 두고, 같은 목록이 두 번 연속 읽힐 때까지(최대 wait 초) 다시 읽는다.
+    팝업은 「No Data」+로딩 동그라미로 열렸다가 목록이 그려진다(13:09 녹화 15.2→15.3초)."""
     spec = step.get(key) or {}
     end = time.time() + wait
+    prev = None
     while True:
         _region, anchor = scr._find_region(spec)
         rows = []
         if anchor:
+            if wait > 0:
+                scr.park(anchor)
             l, t, r, b = (scr.px(v) for v in spec["col"])
             rows = scr.list_rows((anchor[0] + l, anchor[1] + t, anchor[0] + r, anchor[1] + b), tuple(spec["number"]))
-        if rows or time.time() >= end:
+        sig = [(r["번호"], r["checked"], r["at"][1]) for r in rows]
+        if (rows and sig == prev) or time.time() >= end:
             return rows
-        time.sleep(0.5)
+        prev = sig
+        time.sleep(0.6)
 
 
 def _tick(scr: Screen, d: dict, name: str, sid: str, summary: dict, rec: dict, row: dict, what: str) -> None:
     """행 체크칸을 체크 상태로(이미 체크면 그대로) — 누른 뒤 체크 표시를 다시 확인한다."""
     if not row["checked"]:
         scr.click(("image", row["at"]))
+        scr.park((row["at"][0] - scr.px(60), row["at"][1]))   # 포인터가 체크칸을 덮으면 체크 표시를 못 본다
         time.sleep(0.5)
     if not scr.is_checked(row["at"]):
         _stop_missing(scr, d, name, sid, summary, rec, f"{sid}: {what} 체크칸이 체크되지 않았습니다")
@@ -1373,6 +1410,7 @@ def _search_company(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, nam
         _stop_missing(scr, d, name, step["id"], summary, rec, f"{step['id']}: 참여 업체 목록 팝업이 보이지 않습니다")
     if not no:
         raise SkipCompany(f"사업장관리번호를 알 수 없습니다({source or '엑셀·사업자번호 없음'})")
+    before: list[str] = []
     for attempt in ("목록", "검색"):
         if attempt == "검색":
             box, button = scr.find(step.get("input")), scr.find(step.get("search_button"))
@@ -1383,7 +1421,16 @@ def _search_company(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, nam
             scr.type(no)
             scr.click(button)
             time.sleep(float(scr.cfg["step_delay"]) + 0.7)
-        rows = _company_rows(scr, step, "rows", wait=3)
+            # v2.2.7: 검색 결과가 그려질 때까지(목록이 바뀌고 번호가 다 읽힐 때까지) 최대 5초.
+            # 11:49 는 로딩 중인 이전 목록을 읽어 8줄 모두 '' 였다(검색 결과라면 1줄)
+            end = time.time() + 5
+            while time.time() < end:
+                ns = [r["번호"] for r in _company_rows(scr, step, "rows")]
+                if ns and ns != before and all(ns):
+                    break
+                time.sleep(0.5)
+        rows = _company_rows(scr, step, "rows", wait=5)
+        before = [r["번호"] for r in rows]
         rec.setdefault("읽은번호", {})[attempt] = [r["번호"] for r in rows]
         same = [r for r in rows if r["번호"] == no]
         if len(same) == 1:

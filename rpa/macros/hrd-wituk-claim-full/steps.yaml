@@ -100,11 +100,11 @@ steps:
         at: [-744, 368]                       # 맨 위로 올릴 때 휠을 굴리는 본문 왼쪽 여백
         until: "templates/btn_cost_register_main.png"
         from_top: 40                          # 안 보이면 먼저 맨 위로 올린다(위로는 넘쳐도 맨 위에서 멈춤)
-        arrow_img: "templates/sb_arrow_down.png"      # 스크롤바 ▼ — [저장] 기준 (+307, +840)에 1곳 (11/4·11/5 프레임 전부)
-        arrow_box: [250, 600, 360, 900]
-        arrow_up_img: "templates/sb_arrow_up.png"     # 스크롤바 ▲ — [저장] 기준 (+307, +23)
-        arrow_up_box: [250, -20, 360, 80]
-        track_at: [307, 700]                  # ▼ 가 안 들으면 스크롤바 빈 칸(손잡이 아래)을 눌러 한 화면 내림
+        arrow_img: "templates/sb_arrow_down.png"      # 스크롤바 ▼ — [저장] 기준 (+307, +840), 비용등록 뒤(둘째 업체부터)에는 (+359, +840) → x 420 까지 (v2.2.7)
+        arrow_box: [250, 600, 420, 900]
+        arrow_up_img: "templates/sb_arrow_up.png"     # 스크롤바 ▲ — [저장] 기준 (+307, +23), 비용등록 뒤 (+359, +23)
+        arrow_up_box: [250, -20, 420, 80]
+        track_at: [307, 700]                  # ▼ 가 안 들으면 스크롤바 빈 칸(손잡이 아래)을 눌러 한 화면 내림 (x 는 찾은 ▼ 와 같은 줄)
         max: 80
       - id: "4"
         say: "참여업체별 비용신청 현황 → [비용등록] 클릭 (참여 업체 목록 팝업) — {사업장명}"
@@ -171,12 +171,17 @@ steps:
   - id: "5-0"
     say: "비용신청관리 상세(위탁) 화면을 아래로 내려 「첨부파일 목록」이 보이게"
     action: scroll
-    anchor: {image: "templates/btn_save_main.png", unique: true, wait: 15}
-    at: [-744, 368]
-    until: "templates/lbl_row_lodging.png"
-    notches: 5
-    max: 12
-    extra: 10
+    by: arrow                             # v2.2.7 — 휠 대신 스크롤바 ▼ (11/5 13:09: 비용등록 팝업을 닫은 뒤 휠 60칸에도 본문이 안 움직임)
+    anchor: {image: "templates/btn_save_main.png", unique: true, wait: 15}   # 상단 [저장] — 상세 화면이 떴는지
+    at: [-744, 368]                       # (휠은 안 쓴다 — 기록용 기준점)
+    until: "templates/lbl_row_lodging.png"   # 「숙박비 관련」 행까지 보이면 찾음
+    to_bottom: true                       # 보인 뒤에도 ▼ 를 바닥까지 더 눌러 첨부파일 목록 전체가 보이게(휠 extra 대신)
+    arrow_img: "templates/sb_arrow_down.png"      # 스크롤바 ▼ — [저장] 기준 (+307, +840), 비용등록 뒤에는 [저장]이 왼쪽으로 가서 (+359, +840) → x 420 까지 (v2.2.7)
+    arrow_box: [250, 600, 420, 900]
+    arrow_up_img: "templates/sb_arrow_up.png"     # 스크롤바 ▲ — [저장] 기준 (+307, +23), 비용등록 뒤 (+359, +23)
+    arrow_up_box: [250, -20, 420, 80]
+    track_at: [307, 700]                  # ▼ 가 안 들으면 스크롤바 빈 칸(손잡이 아래)을 눌러 한 화면 내림 (x 는 찾은 ▼ 와 같은 줄)
+    max: 80
 
   - id: "5-a"
     for_each: 전자계산서목록
