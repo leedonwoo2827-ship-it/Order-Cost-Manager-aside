@@ -64,7 +64,7 @@ def _find_evidence(kind: str, rnd: str, course: str, given: str, pdfs: list[Path
         if hit:
             return hit[0]
     num = re.compile(rf"(?<!\d){re.escape(str(rnd))}(?!\d)")
-    words = config.EVIDENCE[kind]
+    words = config.evidence().get(kind) or [kind]
     company_keys = [k for k in (_company_key(name) for name in companies) if k]
 
     # 1순위: 회차 폴더 > 업체 폴더 > 파일 2개 구조. 업체 폴더 이름이 업체명과 같으면 그 안에서 종류로 고른다.
@@ -113,7 +113,7 @@ def run(archive: bool = True) -> dict:
                 "과정명": r["과정명"], "회차": str(r["회차"]),
                 "검색시작": r.get("검색시작", ""), "검색종료": r.get("검색종료", ""),
                 "사업장": [], "첨부": {}, "신청금액": 0, "훈련인원": 0,
-                "원본": sh.name, "_given": {k: r.get(k, "") for k in config.EVIDENCE}})
+                "원본": sh.name, "_given": {k: r.get(k, "") for k in config.evidence()}})
             m["사업장"].append({"사업장명": r.get("사업장명", ""), "사업장관리번호": r.get("사업장관리번호", ""),
                                "사업자번호": r.get("사업자번호", ""),
                                "훈련인원": r.get("훈련인원", 0), "신청금액": r.get("신청금액", 0),
@@ -134,7 +134,8 @@ def run(archive: bool = True) -> dict:
                 (d["증빙"] / folder.name / folder_name(business["사업장명"])).mkdir(parents=True, exist_ok=True)
         given = m.pop("_given")
         missing_evidence = []
-        for kind in config.EVIDENCE:
+        kinds = config.evidence()
+        for kind in kinds:
             items = []
             for business in m["사업장"]:
                 if business.get("제외사유"):
@@ -144,12 +145,12 @@ def run(archive: bool = True) -> dict:
                 src = _find_evidence(kind, rnd, course, row_given, pdfs, d["inbox"], [company])
                 if src:
                     items.append({"사업장명": company, "증빙종류": kind, "파일": str(src)})
-                    # 업체 폴더에는 전자계산서·수납확인서 2개만 둔다. 다르면 막지 않고 '확인 필요'만 남긴다.
+                    # 업체 폴더에는 증빙 종류 수만큼(기본 2개, 3종 작업공간은 3개)만 둔다. 다르면 막지 않고 '확인 필요'만 남긴다.
                     if (company and "증빙확인" not in business
                             and _company_key(src.parent.name) == _company_key(company)):
                         n = len(list(src.parent.glob("*.pdf")))
-                        if n != 2:
-                            business["증빙확인"] = f"업체 폴더에 PDF {n}개 (2개여야 함)"
+                        if n != len(kinds):
+                            business["증빙확인"] = f"업체 폴더에 PDF {n}개 ({len(kinds)}개여야 함)"
                             problems.append(f"{course} {rnd}회차 {company}: 업체 폴더에 PDF {n}개 — 확인 필요")
                 else:
                     missing_evidence.append(f"{company or '(사업장명 없음)'} - {kind}")
@@ -166,7 +167,7 @@ def run(archive: bool = True) -> dict:
         m["상태"] = "준비완료" if complete > 0 else "증빙누락"
         m["정리일시"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         (folder / "manifest.json").write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
-        evidence_count = len(m["전자계산서목록"]) + len(m["수납확인서목록"])
+        evidence_count = sum(len(m.get(f"{k}목록", [])) for k in kinds)
         made.append(f"{folder.name}  사업장 {len(m['사업장'])}곳(제외 {len(excluded)})  첨부 {evidence_count}개  {m['상태']}")
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M")

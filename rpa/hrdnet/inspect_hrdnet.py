@@ -6,6 +6,7 @@ UIA 로 버튼·칸의 이름이 보이면 steps.yaml 에 uia target 을 채우�
 """
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from datetime import datetime
@@ -137,6 +138,13 @@ def _later_steps(scr, spec: dict) -> list[str]:
         if sid not in flat:          # v2.2.5 기본 매크로에는 7·8 단계가 없다
             continue
         step = flat[sid]
+        if "{행그림}" in json.dumps(step, ensure_ascii=False):
+            # v2.2.8 증빙목록 — 증빙 종류마다 그 행의 [첨부]
+            for kind in config.evidence():
+                row = (spec.get("evidence_rows") or {}).get(kind, "")
+                hit = scr.find(dict(upload._with_row(step, row).get("target") or {}, wait=0)) if row else None
+                out.append(f"단계 {sid:5} 첨부 — {kind}: " + (("찾음 " + str(hit[1])) if hit else "-" if row else "행 그림 없음(evidence_rows)"))
+            continue
         hit = scr.find(dict(step.get("target") or {}, wait=0))
         out.append(f"단계 {sid:5} {step.get('say', '')[:30]!r}: {('찾음 ' + str(hit[1])) if hit else '-'}")
     for sid, label in (("4-1", "사업장목록"), ("4-2", "비용신청대상 사업장")):

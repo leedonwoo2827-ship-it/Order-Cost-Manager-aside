@@ -68,7 +68,8 @@ export const MacroBar: React.FC<MacroBarProps> = ({
               m.id === 'live' ? 'bg-indigo-700 text-white hover:bg-indigo-600'
               : m.id === 'fill' ? 'bg-teal-700 text-white hover:bg-teal-600'
               : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'}`}>
-            {m.label}
+            {current?.범위 === '저장까지' && m.id === 'live' ? '▶ 신청 (업체별 저장)'
+              : current?.범위 === '저장까지' && m.id === 'fill' ? '미리 채워 보기 (1곳 · 저장 안 함)' : m.label}
           </button>
         ))}
       </div>

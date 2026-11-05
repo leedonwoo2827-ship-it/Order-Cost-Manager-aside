@@ -64,15 +64,44 @@ def _selected_businesses(manifest: dict, selected: set[str] | None) -> list[dict
     return out
 
 
-def _flatten(steps: list, manifest: dict, businesses: list[dict]) -> list[tuple[dict, dict]]:
-    """for_each 블록을 펼친다 → (단계, 이 단계에서 쓸 값). 업체 단계의 값에는 _key(업체 status 키)가 있다."""
+def _with_row(step: dict, row_image: str) -> dict:
+    """증빙목록 단계 — 「{행그림}」 자리에 그 증빙 종류의 첨부 행 이름 그림을 넣는다."""
+    return json.loads(json.dumps(step, ensure_ascii=False).replace("{행그림}", row_image.replace("\\", "/")))
+
+
+def missing_rows(spec: dict) -> list[str]:
+    """증빙목록으로 첨부하는 매크로인데 evidence_rows 에 행 그림이 없는 증빙 종류 (local.json evidence 기준)."""
+    def uses(steps) -> bool:
+        return any(st.get("for_each") == "증빙목록" or uses(st.get("steps") or []) for st in steps or [] if isinstance(st, dict))
+    if not uses(spec.get("steps")):
+        return []
+    rows = spec.get("evidence_rows") or {}
+    return [k for k in config.evidence() if not rows.get(k)]
+
+
+def _flatten(steps: list, manifest: dict, businesses: list[dict], rows: dict | None = None) -> list[tuple[dict, dict]]:
+    """for_each 블록을 펼친다 → (단계, 이 단계에서 쓸 값). 업체 단계의 값에는 _key(업체 status 키)가 있다.
+    for_each: 증빙목록 (v2.2.8) — 업체마다 증빙 종류 순서(config.evidence)대로 파일 하나씩, rows(steps.yaml evidence_rows)의 행에 첨부."""
+    kinds = config.evidence()
     base = {k: manifest.get(k, "") for k in ("과정명", "회차", "검색시작", "검색종료")}
-    base.update({k: manifest.get("첨부", {}).get(k, "") for k in config.EVIDENCE})
+    base.update({k: manifest.get("첨부", {}).get(k, "") for k in kinds})
     by_name = {status.company_key(b.get("사업장명", "")): b for b in businesses}
     out = []
     for s in steps:
         collection = s.get("for_each")
         if collection:
+            if collection == "증빙목록":
+                n = 0
+                for b in businesses:
+                    for kind in kinds:
+                        it = next((x for x in manifest.get(f"{kind}목록", [])
+                                   if status.company_key(x.get("사업장명", "")) == status.company_key(b.get("사업장명", ""))), None)
+                        row = (rows or {}).get(kind, "")
+                        n += 1
+                        for sub in s["steps"]:
+                            out.append((dict(_with_row(sub, row), id=f"{sub['id']}#{n}"),
+                                        dict(base, **b, 증빙종류=kind, 파일=(it or {}).get("파일", ""), 행그림=row)))
+                continue
             items = businesses if collection == "사업장" else [
                 dict(it, _key=by_name[status.company_key(it.get("사업장명", ""))]["_key"])
                 for it in manifest.get(collection, [])
@@ -93,7 +122,7 @@ def _resolve_inbox_evidence(manifest: dict, dirs: dict[str, Path]) -> list[str]:
     pdfs = list(dirs["증빙"].rglob("*.pdf"))
     missing: set[str] = set()
     attachments = manifest.setdefault("첨부", {})
-    for kind in config.EVIDENCE:
+    for kind in config.evidence():
         items = []
         for business in manifest.get("사업장", []):
             company = str(business.get("사업장명", ""))
@@ -522,21 +551,29 @@ class Screen:
 
         if expect and opened(0):
             return "이미 열림"
-        icon = None
-        for path, _offset in self._images(step.get("icon")):
-            icon = self._match(self.win, path)
-            if icon:
-                break
-        if not icon:
-            return ""
-        dx, dy = step.get("box_offset") or (-80, 0)
-        self.click(("image", (icon[0] + dx, icon[1] + dy)))     # 검색칸 글자 자리
-        self.type(text)
-        self.click(("image", icon))                              # 돋보기
-        if opened(8):
-            return "image"
-        send_keys("{ENTER}")
-        return "image" if opened(6) else ""
+        # v2.2.8 — 11/5 15:13 상단 [저장] 뒤 단계 10 에서 돋보기를 못 찾고 멈췄다(늦게 뜬 「저장이 완료되었습니다」 알림이
+        # 화면을 덮고 있었던 것으로 본다). 남은 확인창을 먼저 닫고, 못 찾으면 한 번 더 닫고 찾는다
+        for attempt in range(3):
+            if self.dialog():
+                self.alert(3)
+            icon = None
+            for path, _offset in self._images(step.get("icon")):
+                icon = self._match(self.win, path)
+                if icon:
+                    break
+            if not icon:
+                time.sleep(1.5)
+                continue
+            dx, dy = step.get("box_offset") or (-80, 0)
+            self.click(("image", (icon[0] + dx, icon[1] + dy)))     # 검색칸 글자 자리
+            self.type(text)
+            self.click(("image", icon))                              # 돋보기
+            if opened(8):
+                return "image" if attempt == 0 else f"image(다시 {attempt}번)"
+            send_keys("{ENTER}")
+            if opened(6):
+                return "Enter"
+        return ""
 
     def attach(self, path: str):
         """[첨부] 를 누른 뒤 뜨는 윈도우 '첨부파일' 열기 창에 전체 경로를 넣고 Enter.
@@ -586,18 +623,21 @@ class Screen:
                     return kind, hits[0], ok, text_box
         return None
 
-    def alert(self, timeout: float = 4.0) -> tuple[str, bool]:
+    def alert(self, timeout: float = 4.0, done_words: list[str] | None = None) -> tuple[str, bool]:
         """확인창(Confirm '저장하시겠습니까?' → 알림 '저장되었습니다' 처럼 이어서 뜰 수 있다)을 기다렸다가
-        글자를 읽고 [확인]을 누른다 → (글자, 찾았는지). [확인]을 눌러도 안 닫히면 멈춘다(저장이 안 된 채 넘어가지 않게)."""
+        글자를 읽고 [확인]을 누른다 → (글자, 찾았는지). [확인]을 눌러도 안 닫히면 멈춘다(저장이 안 된 채 넘어가지 않게).
+        done_words (v2.2.8): 이 말이 든 창을 닫을 때까지 timeout 안에서 계속 기다린다(Confirm 을 닫은 뒤 HRD-Net 이
+        로딩 동그라미로 8초 넘게 저장하는 경우 — 11/5 15:27 녹화 101~109초). 못 보면 찾았는지=False."""
         if self.simulate:
             return "", False
         from . import ocr
         texts: list[str] = []
+        done = not done_words
         end = time.time() + timeout
-        while time.time() < end and len(texts) < 3:
+        while time.time() < end and len(texts) < 4:
             dlg = self.dialog()
             if not dlg:
-                if texts:       # 하나를 닫았으면 이어서 뜨는 창만 잠깐 더 본다
+                if texts and done:       # 끝 알림까지 닫았으면 이어서 뜨는 창만 잠깐 더 본다
                     end = min(end, time.time() + 1.5)
                 time.sleep(0.3)
                 continue
@@ -617,8 +657,13 @@ class Screen:
             again = self.dialog()
             if again and again[0] == kind and abs(again[1][0] - x) < 5 and abs(again[1][1] - y) < 5:
                 raise Stop(f"확인창 [{kind}]의 [확인]을 눌렀는데 닫히지 않았습니다 — {text[:80]}")
-            end = max(end, time.time() + 1.5)
-        return " / ".join(texts)[:500], bool(texts)
+            # 끝 알림: 주황 「알림」 창(저장되었습니다 / 저장이 완료되었습니다) — OCR 이 글자를 틀려도 창 종류로 안다.
+            # 오류 알림인지는 부르는 쪽이 ERROR_WORDS 로 다시 본다
+            if not done and (kind == "알림" or any(w.replace(" ", "") in re.sub(r"\s", "", text) for w in done_words or [])):
+                done = True
+            if done:
+                end = max(end, time.time() + 1.5)
+        return " / ".join(texts)[:500], bool(texts) and done
 
     def list_rows(self, col: tuple[int, int, int, int], number: tuple[int, int, int, int] | None) -> list[dict]:
         """표의 체크칸 열(col, 화면 좌표) 안 체크칸마다 → {'at', 'checked', '번호'}(위에서부터).
@@ -767,6 +812,9 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
     mode = "simulate" if simulate else "dry-run" if dry else ("학습" if learn else "미리채움") if fill else "실행"
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     name = f"{stamp}_{course}_{rnd}회차"
+    one = [b for b in _selected_businesses(manifest, companies)] if companies is not None and len(companies) == 1 else []
+    if len(one) == 1:      # v2.2.8 업체별 실행 — 기록 파일도 업체마다 하나
+        name += "_" + re.sub(r'[\\/:*?"<>|]', "",str(one[0].get("사업장명", "")))[:30]
     logf = d["logs"] / f"{name}.jsonl"
 
     # 증빙(계산서·수납확인서)이 아직 폴더에 다 안 들어온 업체는 이번에 빼고, 신청완료·불가로 바꾼 업체도 뺀다
@@ -778,7 +826,7 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
             left_out.append(f"{b.get('사업장명')}({b['제외사유']})")
         elif b.get("사업장명", "") in missing_evidence:
             left_out.append(f"{b.get('사업장명')}(증빙 대기)")
-        elif st in ("신청완료", "불가"):
+        elif st in ("신청완료", "저장완료", "불가"):     # 저장완료를 또 돌리면 HRD-Net 에 신청서가 두 번 생긴다
             left_out.append(f"{b.get('사업장명')}({st})")
         else:
             businesses.append(b)
@@ -794,7 +842,8 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
                "자동": 0, "사람": 0, "못찾음": [], "오류": "",
                "신청금액": sum(float(b.get("신청금액") or 0) for b in businesses),
                "업체": [b.get("사업장명", "") for b in businesses], "빠진업체": left_out, "불가업체": []}
-    plan = _flatten(spec["steps"], manifest, businesses)
+    plan = _flatten(spec["steps"], manifest, businesses, spec.get("evidence_rows"))
+    no_row = missing_rows(spec)
     summary["단계수"] = len(plan)
     # v2.2.4~ 기본 매크로처럼 최종 신청(confirm) 단계가 없으면 [저장]까지만 한다 — 끝나도 「신청완료」가 아니라 「저장완료」
     to_save = not any(s.get("confirm") for s, _v in plan)
@@ -808,6 +857,8 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
         print("  이번에 뺀 업체: " + ", ".join(left_out), flush=True)
     status.record(keys, f01=mmeta["id"], f02=mmeta["표시명"], f03=mode, f04=summary["시작"], f05="",
                   f06="", f07="", f08="진행중", f09="", reset_steps=True)
+    for b in businesses:     # 결과표 「업체」 시트용 이름 (키에는 관리번호만 있을 수 있다)
+        status.record(b["_key"], 업체=b.get("사업장명", ""), 관리번호=b.get("사업장관리번호", ""))
 
     def log(rec):
         with open(logf, "a", encoding="utf-8") as f:
@@ -830,8 +881,13 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
         print(f"  ✗ {vals.get('사업장명')}: {why} → 이 업체만 빼고 계속합니다", flush=True)
 
     try:
+        if no_row:
+            # HRD-Net 을 누르기 전에 멈춘다 — 첨부 단계에서 알면 비용등록만 저장된 반쪽 신청서가 남는다
+            raise Stop(f"증빙 「{', '.join(no_row)}」을 붙일 첨부파일 목록 행이 매크로에 없습니다(steps.yaml evidence_rows) — "
+                       "HRD-Net 에서 이 서류를 붙이는 행 이름을 알려 주세요")
         if not businesses:
-            raise Stop("이번에 신청할 업체가 없습니다 — 증빙 폴더에 계산서·수납확인서가 들어왔는지 확인해 주세요")
+            raise Stop("이번에 신청할 업체가 없습니다 — " + (f"뺀 업체: {', '.join(left_out)[:200]}" if left_out
+                       else "증빙 폴더에 증빙이 들어왔는지 확인해 주세요"))
         scr = Screen(spec.get("window", ".*HRD.*"), simulate, cfg, mdir)
         if not simulate and scr.windows_scale() != 100:
             summary["배율"] = scr.windows_scale()
@@ -853,7 +909,12 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
             if step.get("after_round") and not after_round_only and fill and not to_save:
                 continue                       # 미리 채움에서 복귀는 사람이 [다음 회차로]를 누른 뒤에만
             if skipped and len(skipped) == len(keys) and not step.get("on_skip") and not step.get("after_round"):
-                raise Ineligible("고른 업체가 모두 불가라 이 회차는 신청하지 않습니다")
+                # v2.2.8 — 멈추지 않고 검색화면 복귀(after_round)만 하고 끝낸다 → 다음 업체가 바로 이어서 검색한다
+                if not summary["상태"]:
+                    summary["상태"], summary["오류"] = "신청불가", "고른 업체가 모두 불가라 이 회차는 신청하지 않습니다"
+                    print("  신청불가:", summary["오류"], flush=True)
+                after_round_only = True
+                continue
             say = _fmt(step.get("say", ""), vals)
             rec = {"id": sid, "action": act, "say": say}
             _now(d, {"folder": folder.name, "과정명": course, "회차": rnd, "모드": mode, "매크로": mmeta["표시명"],
@@ -866,14 +927,16 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
             except SkipCompany as e:
                 rec["result"] = "불가"
                 log(rec)
+                if vals.get("_key") and vals["_key"] not in skipped:
+                    status.record(vals["_key"], f06=sid, f07=say)     # 결과표: 어느 단계에서 불가가 됐는지
                 drop_company(vals, str(e))
                 continue
             except _FillDone:
                 summary["상태"] = "채움완료"
                 log(rec)
                 status.record(keys, step=(sid, "채움"), f06=sid, f07=say)
-                if not any(s.get("after_round") for s, _v in plan[i:]):
-                    break
+                if to_save or not any(s.get("after_round") for s, _v in plan[i:]):
+                    break       # 저장까지 매크로의 미리 채워 보기 — [저장] 앞에서 화면(비용등록 창)을 띄워 둔 채 끝낸다
                 if not auto and ask("filled", f"{course} {rnd}회차 — 미리 채워 보기 끝. 화면을 확인한 뒤 [다음 회차로]를 누르면 "
                        "검색화면으로 돌아가 다음 회차를 시작합니다.", ["next", "stop"]) != "next":
                     break
@@ -883,8 +946,21 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
             summary["완료"] += 1
             if step.get("after_round") and rec.get("result") in ("자동", "사람"):
                 summary["복귀"] = True
+            if rec.get("result") == "자동" and step.get("marks_registered"):
+                summary["비용등록저장"] = True      # 4-6a — HRD-Net 에 비용등록이 저장됐다(상단 저장 전)
+            if rec.get("result") == "자동" and step.get("marks_saved") and mode in ("실행", "미리채움", "학습"):
+                # 6a — 상단 [저장]이 끝났다(목록에 「정상지급(작성중)」 행). 뒤 단계가 실패해도 이 업체는 저장완료로 남긴다
+                summary["저장됨"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                done_keys = [x for x in keys if x not in skipped]
+                status.update([{"key": x, "상태": "저장완료",
+                                "사유": f"{summary['저장됨'][5:16]} HRD-Net 저장(정상지급 작성중) — 고용보험확인·훈련비용 신청은 담당자"}
+                               for x in done_keys])
+                status.record(done_keys, f05=summary["저장됨"], f08="저장완료")
+                print(f"  ✓ 저장완료: {', '.join(b.get('사업장명', '') for b in businesses if b['_key'] in done_keys)}"
+                      " — 비용신청관리(위탁) 목록에 「정상지급(작성중)」 행", flush=True)
             targets = [k] if k else [x for x in keys if x not in skipped]
-            status.record(targets, step=(sid.split("#")[0], rec.get("result", "")), f06=sid, f07=say,
+            where = {} if k in skipped else {"f06": sid, "f07": say}    # 불가 업체는 불가가 난 단계를 남긴다(닫기 단계로 덮지 않음)
+            status.record(targets, step=(sid.split("#")[0], rec.get("result", "")), **where,
                           **{f: rec[f] for f in ("f10", "f11", "f12") if f in rec})
         if not summary["상태"]:
             summary["상태"] = {"simulate": "모의완료", "dry-run": "점검완료"}.get(mode, "저장완료" if to_save else "성공")
@@ -902,13 +978,27 @@ def run(folder: Path, dry: bool = False, simulate: bool = False, fill: bool = Fa
     finally:
         _now(d, None)
     summary["끝"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if summary.get("저장됨") and summary["상태"] in ("중단", "실패", "오류"):
+        # 저장 뒤 복귀(10) 등에서 멈췄다 — HRD-Net 에는 저장됐으니 결과는 저장완료, 멈춘 이유는 오류 칸에 남긴다
+        summary["오류"] = f"저장은 완료 · 그 뒤 {summary['오류']}"
+        summary["상태"] = "저장완료"
+        summary["복귀"] = False
+    elif summary["상태"] in ("중단", "실패", "오류") and summary.get("비용등록저장"):
+        summary["반쯤저장"] = True      # 비용등록만 저장되고 상단 [저장] 전에 멈춤 — run_all 이 전체를 멈춘다
 
     alive = [x for x in keys if x not in skipped]
     # 완료 반영은 업체 단위 — 이 회차에서 실제로 신청까지 간 업체만 (result.py → 완료처리대상 CSV 사업장명)
     summary["신청업체"] = [b.get("사업장명", "") for b in businesses if b["_key"] not in skipped]
-    status.record(alive, f05=summary["끝"], f08=summary["상태"], f09=summary["오류"][:200])
+    stopped_at = {}
+    if summary["상태"] in ("중단", "실패", "오류") and summary["못찾음"]:
+        stopped_at = {"f06": summary["못찾음"][-1]}          # 결과표: 멈춘 단계 — 담당자가 그 화면을 찾아가 확인한다
+    status.record(alive, f05=summary["끝"], f08=summary["상태"], f09=summary["오류"][:200], **stopped_at)
     if summary["상태"] == "성공":
         status.update([{"key": x, "상태": "신청완료"} for x in alive])
+    elif summary["상태"] == "저장완료" and not summary.get("저장됨") and mode in ("실행", "미리채움", "학습"):
+        # marks_saved 가 없는 (예전·복사한) 매크로도 끝까지 저장했으면 다시 고르지 않게
+        status.update([{"key": x, "상태": "저장완료", "사유": f"{summary['끝'][5:16]} HRD-Net 저장 — 훈련비용 신청은 담당자"}
+                       for x in alive])
 
     (d["logs"] / f"{name}.summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1),
                                                     encoding="utf-8")
@@ -988,7 +1078,7 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         if check_only:
             rec["result"] = "확인만"
             return
-        text, found = scr.alert(float(step.get("seconds", 4)))
+        text, found = scr.alert(float(step.get("seconds", 4)), step.get("done_words"))
         rec["popup"], rec["result"] = text, "자동" if found else "알림없음"
         if not found and step.get("expect"):
             # 저장 확인창을 못 보고 넘어가면 저장이 안 된 채 다음으로 간다(10/30 22단계) — 멈춘다
@@ -1127,17 +1217,21 @@ def _do_step(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str,
         _after_click(scr, sid, vals, rec)
         return
 
+    if act == "attach" and "행그림" in vals and not vals.get("행그림"):
+        # v2.2.8 증빙목록 — 이 증빙 종류를 붙일 HRD-Net 첨부 행 그림이 매크로(evidence_rows)에 없다 → 이 업체만 불가
+        raise SkipCompany(f"{sid}: 「{vals.get('증빙종류')}」을 붙일 첨부파일 목록 행이 매크로에 없습니다(steps.yaml evidence_rows)")
     if act == "attach" and not _fmt(step.get("file", ""), vals).strip("{}"):
         if step.get("optional"):
             rec["result"] = "건너뜀(파일 없음)"
             print(f"  {sid:6} {'건너뜀':10} {say} — 파일 없음", flush=True)
             return
         raise SkipCompany(f"{sid}: 첨부할 파일이 없습니다")
-    if fill and step.get("confirm"):
+    if fill and (step.get("confirm") or (step.get("saves") and not learn)):
+        # v2.2.8 — 미리 채워 보기는 HRD-Net 에 아무것도 저장하지 않는다. 실제 [저장](saves)·최종 신청(confirm) 앞에서 멈춘다
         shot = d["shots"] / f"{name}_{sid}_채움.png"
         scr.shot(shot)
         rec["result"], rec["file"] = "채움까지만", shot.name
-        print(f"  {sid:6} {'멈춤':10} {say} — 미리 채워 보기라 누르지 않음", flush=True)
+        print(f"  {sid:6} {'멈춤':10} {say} — 미리 채워 보기라 누르지 않음 (저장은 [신청]으로)", flush=True)
         raise _FillDone()
 
     if act in ("search_company", "check_company_row") and not learn:
@@ -1443,7 +1537,8 @@ def _search_company(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, nam
             break                      # 같은 번호가 여러 줄 — 고르지 않는다
     why = f"참여 업체 목록에서 관리번호 {no}({source}) 행을 하나로 찾지 못했습니다"
     rec["f11"] = why
-    raise SkipCompany(why + " — 사업장관리번호 확인 필요")
+    # 체크칸이 있는 줄만 읽는다 — HRD-Net 이 미납·체납 등으로 업체 줄을 비활성(체크 불가)으로 두면 목록에서 빠져 보인다
+    raise SkipCompany(why + " — 사업장관리번호 확인, 또는 HRD-Net 에서 이 업체가 비활성(미납·체납 등)인지 확인 필요")
 
 
 def _check_company_row(scr: Screen, step: dict, vals: dict, rec: dict, d: dict, name: str, summary: dict) -> None:
@@ -1528,13 +1623,60 @@ def run_all(dry: bool = False, simulate: bool = False, fill: bool = False, only:
     if only:   # 대시보드에서 고른 순서대로
         todo.sort(key=lambda p: only.index(p.name))
     print(f"올릴 회차 {len(todo)}개" + (f" · 업체 {len(companies)}곳" if companies is not None else ""), flush=True)
+    # v2.2.8 — 「저장까지」 매크로(최종 신청 단계 없음)는 업체 1곳 = [신청] 1번 = 상단 [저장] 1번.
+    # 첨부파일 목록 행이 한정(최대 7개)이고 업체마다 증빙이 2~3개라, 한 신청서에 여러 업체를 담지 않는다(11/5 담당자 회신).
+    jobs: list[tuple[Path, set[str] | None, str]] = []
+    spec = macros.spec(macros.path().name)
+    per_company = not macros.has_confirm(spec)
+    if missing_rows(spec) and not simulate:
+        print(f"  ■ 증빙 「{', '.join(missing_rows(spec))}」을 붙일 첨부파일 목록 행이 매크로에 없어 시작하지 않습니다"
+              " — HRD-Net 에서 이 서류를 붙이는 행 이름을 알려 주세요 (local.json evidence · steps.yaml evidence_rows)", flush=True)
+        return
+    for f in todo:
+        if not per_company:
+            jobs.append((f, companies, ""))
+            continue
+        manifest = json.loads((f / "manifest.json").read_text(encoding="utf-8"))
+        saved = status.load()
+        chosen = _selected_businesses(manifest, companies)
+        picked = [b for b in chosen if (saved.get(b["_key"]) or {}).get("상태", "") not in ("저장완료", "신청완료", "불가")]
+        if chosen and not picked:
+            print(f"  {f.name}: 고른 업체가 모두 이미 저장완료·신청완료·불가라 건너뜁니다", flush=True)
+            continue
+        if not picked:
+            jobs.append((f, companies, ""))      # run() 이 「신청할 업체가 없습니다」로 남긴다
+        for b in picked:
+            jobs.append((f, {b["_key"]}, str(b.get("사업장명", ""))))
+    if per_company:
+        print(f"  업체별로 한 곳씩: {len(jobs)}번 — 업체마다 [신청] → 비용등록 → 첨부 → 상단 [저장]"
+              " (고용보험확인·훈련비용 신청은 하지 않음)", flush=True)
     s: dict = {}
-    for k, f in enumerate(todo):
-        s = run(f, dry=dry, simulate=simulate, fill=fill, companies=companies, learn=learn,
+    done: dict[str, int] = {}
+    for k, (f, keys, company) in enumerate(jobs):
+        if per_company and company:
+            print(f"\n■ {k + 1}/{len(jobs)} {f.name} · {company}", flush=True)
+        s = run(f, dry=dry, simulate=simulate, fill=fill, companies=keys, learn=learn,
                 continued=bool(s.get("복귀")), auto=auto, tidy=bool(s) and not s.get("복귀"))
-        if s["상태"] in ("중단", "오류", "실패") and not (dry or simulate) and k < len(todo) - 1:
+        done[s["상태"]] = done.get(s["상태"], 0) + 1
+        if per_company and fill and s["상태"] == "채움완료":
+            print("  미리 채워 보기는 업체 1곳만 보여 줍니다(저장하지 않음). 저장은 [신청]으로 합니다.", flush=True)
+            break
+        if s.get("반쯤저장") and not (dry or simulate):
+            # 비용등록은 저장됐는데 상단 [저장] 전에 멈췄다 — 다음 업체로 가면 반쯤 된 신청서가 더 쌓인다
+            print(f"  ■ {company or f.name}: 비용등록만 저장되고 상단 [저장] 전에 멈췄습니다 — 남은 업체는 하지 않고 멈춥니다."
+                  " HRD-Net 화면과 [보낼 파일 만들기]를 확인해 주세요.", flush=True)
+            break
+        if s["상태"] in ("중단", "오류", "실패") and not (dry or simulate) and k < len(jobs) - 1:
             if auto:
-                print(f"  → {f.name}: {s['상태']} — 연속 실행이라 화면을 정리하고 다음 회차로 갑니다", flush=True)
+                print(f"  → {company or f.name}: {s['상태']} — 연속 실행이라 화면을 정리하고 다음으로 갑니다", flush=True)
                 continue
-            if ask("next", f"{f.name}: {s['상태']} — 다음 회차로 넘어갈까요?", ["next", "stop"]) != "next":
+            if ask("next", f"{company or f.name}: {s['상태']} — 다음으로 넘어갈까요?", ["next", "stop"]) != "next":
                 break
+    if per_company and len(jobs) > 1:
+        print("\n업체별 결과: " + ", ".join(f"{k2} {v}" for k2, v in done.items()), flush=True)
+    if not simulate:
+        try:   # 끝나면 결과표(결과_YYYYMMDD.xlsx)를 바로 만든다 — [4 결과표]를 따로 누르지 않아도 된다
+            from . import result
+            result.run()
+        except Exception as e:  # noqa: BLE001
+            print(f"  결과표를 만들지 못했습니다: {type(e).__name__}: {e}", flush=True)

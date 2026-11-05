@@ -1,7 +1,8 @@
 // HRD-Net 비용신청 탭 — rpa 엔진(/api/state, /api/macros)이 주는 모양
 
-export type CompanyState = '신청가능' | '신청완료' | '불가';
-export const COMPANY_STATES: CompanyState[] = ['신청가능', '신청완료', '불가'];
+// 저장완료(v2.2.8) = HRD-Net 상단 [저장]까지 끝남(목록에 「정상지급(작성중)」 행) — 고용보험확인·훈련비용 신청은 담당자
+export type CompanyState = '신청가능' | '저장완료' | '신청완료' | '불가';
+export const COMPANY_STATES: CompanyState[] = ['신청가능', '저장완료', '신청완료', '불가'];
 
 // 업체(사업장) 한 줄. f01~f30 은 여분 필드(어떤 매크로로 어디까지 갔는지) — 뜻은 /api/macros 의 slots
 export interface RpaBusiness {
@@ -14,6 +15,8 @@ export interface RpaBusiness {
   신청금액: number;
   전자계산서: string;
   수납확인서: string;
+  증빙?: Record<string, string>;   // 종류 → 파일 이름 (종류 수는 local.json evidence — 기본 2, HRD아카이브 3)
+  증빙완료?: boolean;
   증빙확인: string;
   제외사유?: string;     // 대시보드에서 대상이 아닌 행(입금 미확인·부분입금·비용신청 완료) — 업체 수를 맞추려고 같이 온다
   상태: CompanyState;
@@ -31,6 +34,8 @@ export interface RpaRound {
   사업장내역: RpaBusiness[];
   신청가능: number;
   증빙대기: number;
+  저장완료?: number;               // HRD-Net 상단 [저장]까지 끝난 업체 수 (v2.2.8)
+  증빙종류?: string[];
   제외?: Record<string, number>;   // 제외사유별 업체 수
   첨부: string[];
   정리: string;
@@ -68,6 +73,7 @@ export interface RpaMacro {
   원본: string;
   생성일: string;
   상태: '사용' | '시험중';
+  범위?: '저장까지' | '신청까지' | '';   // 저장까지 = 업체 1곳씩 상단 [저장]까지만 (최종 신청 단계 없음)
 }
 
 export interface RpaMode {
@@ -85,7 +91,7 @@ export interface RpaMacros {
   slots: Record<string, string>;
 }
 
-export const hasEvidence = (b: RpaBusiness) => Boolean(b.전자계산서 && b.수납확인서);
+export const hasEvidence = (b: RpaBusiness) => (b.증빙완료 ?? Boolean(b.전자계산서 && b.수납확인서));
 // 상태는 사람이 콤보로 정한다 — 대시보드 제외사유가 있어도 사람이 신청가능으로 바꾸면 고를 수 있다
 export const selectable = (b: RpaBusiness) => b.상태 === '신청가능' && hasEvidence(b);
 export const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('ko-KR')}원`;

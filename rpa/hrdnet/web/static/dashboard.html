@@ -100,8 +100,8 @@ input{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px 8p
         <span class="adm row">
           <button onclick="up('--simulate')" title="HRD-Net 없이 순서만">모의 실행</button>
           <button onclick="up('--dry-run')" title="화면에서 버튼을 찾기만 하고 누르지 않음">3 점검</button>
-          <button class="go" onclick="up('--fill')" title="다 채우고 [훈련비용 신청] 앞에서 멈춤">3 미리 채워 보기</button>
-          <button class="pri" onclick="up('')" title="최종 신청은 버튼으로 한 번 더 확인">▶ 3 신청</button>
+          <button class="go" onclick="up('--fill')" title="업체 1곳을 채워 보고 [저장] 앞에서 멈춤 — HRD-Net 에 저장하지 않음">3 미리 채워 보기</button>
+          <button class="pri" onclick="up('')" title="업체 1곳씩 [신청] → 비용등록 → 첨부 → 상단 [저장]까지 (저장까지 매크로)">▶ 3 신청</button>
           <span class="sep">|</span><button onclick="go(['result'])">4 결과표</button>
         </span>
       </div>
@@ -163,7 +163,7 @@ const go = args => post('/api/run', {args}).then(refresh);
 function up(mode) {
   const only = [...SEL].filter(f => S.rounds.some(r => r.folder === f && r.정리 === '준비완료'));
   if (!only.length) return alert('준비완료 회차를 하나 이상 체크해 주세요');
-  if (mode === '' && !confirm(`${only.length}개 회차를 HRD-Net 에 실제로 신청합니다.\n최종 [훈련비용 신청] 앞에서 한 번 더 묻습니다.`)) return;
+  if (mode === '' && !confirm(`${only.length}개 회차를 HRD-Net 에 실제로 입력합니다.\n저장까지 매크로는 업체 1곳씩 상단 [저장]까지만 합니다(고용보험확인·훈련비용 신청은 담당자).`)) return;
   go(['upload-all', ...(mode ? [mode] : []), '--only=' + only.join(',')]);
   setTab('up');
 }

@@ -52,8 +52,28 @@ COLUMNS = {
 }
 REQUIRED = ["과정명", "회차"]   # 사업장관리번호는 대시보드 엑셀에 없을 수 있어 필수에서 뺐다(없으면 사업장명으로 사람 안내)
 
-# 증빙 파일 이름으로 종류를 알아보는 말
+# 증빙 파일 이름으로 종류를 알아보는 말 — 기본(AI융합) 2개. 이 순서대로 첨부한다.
+# 업체마다 3개를 붙이는 곳(HRD아카이브 등)은 local.json 에 "evidence": {"전자계산서": [...], "수납확인서": [...], "<셋째>": [...]}
+# 를 적는다(v2.2.8). 첨부할 HRD-Net 행은 매크로 steps.yaml 의 evidence_rows 에서 종류 이름으로 찾는다.
 EVIDENCE = {"전자계산서": ["전자계산서", "계산서"], "수납확인서": ["수납확인서", "수납"]}
+
+
+def evidence(cfg: dict | None = None) -> dict[str, list[str]]:
+    """증빙 종류 → 파일 이름에서 찾을 말 (순서 = 첨부 순서)."""
+    try:
+        got = (cfg or load()).get("evidence")
+    except (OSError, json.JSONDecodeError):
+        got = None
+    if isinstance(got, dict) and got:
+        return {str(k): [str(w) for w in (v if isinstance(v, list) else [v])] or [str(k)] for k, v in got.items()}
+    return dict(EVIDENCE)
+
+
+def evidence_kind(filename: str, kinds: dict[str, list[str]] | None = None) -> str:
+    """파일 이름 → 증빙 종류. 긴 말부터 본다(「전자계산서」가 다른 종류의 짧은 말에 먼저 걸리지 않게)."""
+    kinds = kinds or evidence()
+    pairs = sorted(((w, k) for k, words in kinds.items() for w in words), key=lambda x: -len(x[0]))
+    return next((k for w, k in pairs if w and w in filename), "")
 
 
 def load() -> dict:

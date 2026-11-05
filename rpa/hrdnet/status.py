@@ -3,7 +3,8 @@
 manifest 와 따로 둔다. [정리]를 다시 해도 사람이 고른 상태·사유·실행 기록이 지워지지 않게.
 
 키      과정명|회차|사업장관리번호  (관리번호가 없으면 과정명|회차|#정규화한 업체명)
-상태    신청가능 | 신청완료 | 불가     ← 대시보드 콤보. 신청가능인 업체만 체크해서 돌릴 수 있다
+상태    신청가능 | 저장완료 | 신청완료 | 불가     ← 대시보드 콤보. 신청가능인 업체만 체크해서 돌릴 수 있다
+        저장완료 = HRD-Net 상단 [저장]까지 끝남(목록에 「정상지급(작성중)」 행) — 고용보험확인·훈련비용 신청은 담당자 (v2.2.8)
 사유    사람이 적거나 엔진이 남긴 이유 (예: 수납 미납 → 다음 신청)
 f01~f30 여분 필드 — 어떤 자동화(매크로)로 어디까지 갔는지. 슬롯 뜻은 SLOTS.
 """
@@ -16,7 +17,7 @@ from pathlib import Path
 
 from . import config
 
-STATES = ("신청가능", "신청완료", "불가")
+STATES = ("신청가능", "저장완료", "신청완료", "불가")
 SLOTS = {
     "f01": "매크로 ID", "f02": "매크로 이름", "f03": "모드", "f04": "실행 시작", "f05": "실행 끝",
     "f06": "마지막 단계", "f07": "마지막 단계 설명", "f08": "결과", "f09": "오류 요약",
@@ -62,7 +63,7 @@ def _save(data: dict) -> None:
 
 
 def _blank() -> dict:
-    return {"상태": "", "사유": "", "자동사유": "", "수정": "", **{k: "" for k in FIELDS}}
+    return {"상태": "", "사유": "", "자동사유": "", "수정": "", "업체": "", "관리번호": "", **{k: "" for k in FIELDS}}
 
 
 # ── 사업장관리번호 ────────────────────────────────────────────────────
@@ -118,17 +119,13 @@ def resolve_number(business: dict, known: dict | None = None) -> tuple[str, str]
     return "", "확인필요(사업자번호 없음)"
 
 
-def default_state(business: dict, has_invoice: bool, has_receipt: bool) -> tuple[str, str]:
-    """사람이 아직 안 고른 업체의 기본값. 필수가 비면 불가 + 이유(막지 않고 표시만)."""
+def default_state(business: dict, missing: list[str]) -> tuple[str, str]:
+    """사람이 아직 안 고른 업체의 기본값. missing = 업체 폴더에 아직 없는 증빙 종류. 필수가 비면 불가 + 이유(막지 않고 표시만)."""
     if business.get("제외사유"):
         # 기본값일 뿐 — 사람이 콤보로 고른 상태가 늘 우선한다(merged)
         why = f"대시보드: {business['제외사유']}"
         return ("신청완료" if business["제외사유"] == "비용신청 완료" else "불가"), why
-    why = []
-    if not has_invoice:
-        why.append("전자계산서 없음")
-    if not has_receipt:
-        why.append("수납확인서 없음")
+    why = [f"{kind} 없음" for kind in missing]
     if why:
         return "불가", "증빙 대기: " + ", ".join(why)
     _no, source = resolve_number(business)
@@ -138,13 +135,12 @@ def default_state(business: dict, has_invoice: bool, has_receipt: bool) -> tuple
     return "신청가능", ""
 
 
-def merged(course: str, rnd: str, business: dict, has_invoice: bool, has_receipt: bool,
-           data: dict | None = None) -> dict:
+def merged(course: str, rnd: str, business: dict, missing: list[str], data: dict | None = None) -> dict:
     """화면용: 저장된 값 + 기본값. 사람이 고른 상태가 있으면 그것이 우선."""
     data = load() if data is None else data
     k = key(course, rnd, business)
     rec = dict(_blank(), **data.get(k, {}))
-    auto_state, auto_why = default_state(business, has_invoice, has_receipt)
+    auto_state, auto_why = default_state(business, missing)
     if not rec["상태"]:
         rec["상태"] = auto_state
     rec["자동사유"] = auto_why

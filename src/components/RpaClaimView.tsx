@@ -145,6 +145,8 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
 
   const organize = () => run(['organize'], '정리를 시작했습니다. 증빙 폴더에 회차 > 업체 폴더가 만들어집니다.');
 
+  const currentMacro = macros?.macros.find((m) => m.id === macros.current);
+
   const pickedRounds = useMemo(
     () => rounds.filter((r) => r.사업장내역.some((b) => picked.has(b.key))).map((r) => r.folder),
     [rounds, picked],
@@ -155,13 +157,28 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
       onShowToast?.('실행할 업체를 체크하세요. (신청가능이고 증빙 2개가 다 있는 업체만 고를 수 있습니다)', 'info');
       return;
     }
-    if (mode.id === 'live' && !window.confirm(`${pickedRounds.length}개 회차 · ${picked.size}개 업체를 실제로 신청 진행합니다.
+    const saveOnly = currentMacro?.범위 === '저장까지';
+    // v2.2.8 — 미리 채워 보기는 HRD-Net 에 저장하지 않고 업체 1곳만 채워 보여 준다
+    if (mode.id === 'fill' && saveOnly && picked.size !== 1) {
+      onShowToast?.('미리 채워 보기는 업체 1곳만 체크해서 봅니다(저장하지 않음). 여러 곳을 저장하려면 [신청]을 누르세요.', 'info');
+      return;
+    }
+    if (mode.id === 'live' && !window.confirm(saveOnly
+      ? `${pickedRounds.length}개 회차 · ${picked.size}개 업체를 HRD-Net 에 실제로 입력합니다.
+
+업체 1곳씩: [신청] → 비용등록 → 증빙 첨부 → 상단 [저장]까지 하고 다음 업체로 갑니다.
+저장되면 비용신청관리(위탁) 목록에 「정상지급(작성중)」 행이 생기고, 이 탭에는 「저장완료」로 남습니다.
+고용보험확인·훈련비용 신청은 누르지 않습니다(담당자). 진행할까요?`
+      : `${pickedRounds.length}개 회차 · ${picked.size}개 업체를 실제로 신청 진행합니다.
 회차마다 묻지 않고 끝까지 이어서 [훈련비용 신청]까지 누릅니다. 진행할까요?`)) return;
     const args = ['upload-all', `--only=${pickedRounds.join(',')}`, `--macro=${macros?.current ?? ''}`];
     if (mode.flag) args.push(mode.flag);
     // 연속 실행 — 고른 회차를 회차마다 묻지 않고 끝까지 (멈춘 회차는 화면을 정리하고 다음 회차로)
     if (mode.id === 'live' || mode.id === 'fill') args.push('--auto');
-    void run(args, `${mode.label}을 시작했습니다. 오른쪽 패널을 보세요.`, [...picked]);
+    void run(args, `${mode.label}을 시작했습니다. 오른쪽 패널을 보세요.`, [...picked]).then((ok) => {
+      // 이번에 돌릴 업체를 넘겼으니 선택을 비운다 — 다음 실행에 앞 선택이 섞이지 않게(11/5 포커스타임이 또 돈 일)
+      if (ok && mode.id !== 'simulate' && mode.id !== 'dry-run') setPicked(new Set());
+    });
   };
 
   const learn = () => {
@@ -247,8 +264,8 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
         <div className="border-b border-slate-200 px-5 py-4">
           <h2 className="text-base font-bold text-slate-900">HRD-Net 비용신청</h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            순서: ① 통합 DATA 시트에서 「HRD-Net 비용신청 올리기」 → ② 증빙 폴더의 회차 &gt; 업체 폴더에 전자계산서·수납확인서 넣기(자동으로 신청가능) →
-            ③ 업체를 체크하고 단계 실행 → ④ 「4 결과표」. 진행과 질문(사람이 눌러야 할 곳)은 오른쪽 패널에 뜹니다.
+            순서: ① 통합 DATA 시트에서 「HRD-Net 비용신청 올리기」 → ② 증빙 폴더의 회차 &gt; 업체 폴더에 증빙(전자계산서·수납확인서 등) 넣기(자동으로 신청가능) →
+            ③ 회차·업체를 체크하고 [신청] — 업체 1곳씩 상단 [저장]까지, 끝나면 「저장완료」 → ④ 「4 결과표」(끝나면 자동으로도 만듦). 진행은 오른쪽 패널에 뜹니다.
           </p>
         </div>
       )}
@@ -333,7 +350,7 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
           {(['전체', ...COMPANY_STATES, '증빙대기'] as Filter[]).map((f) => <option key={f} value={f}>{f}</option>)}
         </select>
         <span className="text-slate-300">|</span>
-        {[50, 100].map((n) => (
+        {[10, 50, 100].map((n) => (
           <button key={n} type="button" onClick={() => pickFirst(n)}
             className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-100">
             {n}개 선택
@@ -403,7 +420,15 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
                       </td>
                     )}
                     <td className={`py-1.5 font-semibold ${r.정리 === '준비완료' ? 'text-emerald-700' : 'text-amber-600'}`}>{r.정리}</td>
-                    <td className="py-1.5" title={r.오류}>{r.올리기}</td>
+                    <td className="py-1.5" title={r.오류}>
+                      {(r.저장완료 ?? 0) > 0 && (
+                        <span className="mr-1 rounded bg-sky-100 px-1 text-[11px] font-semibold text-sky-800"
+                          title="HRD-Net 상단 [저장]까지 끝난 업체(정상지급 작성중) — 고용보험확인·훈련비용 신청은 담당자">
+                          저장 {r.저장완료}/{r.사업장}
+                        </span>
+                      )}
+                      {r.올리기}
+                    </td>
                   </tr>
                   {isExpanded && (
                     <tr className="border-b border-indigo-100 bg-indigo-50/30">
@@ -420,7 +445,7 @@ export const RpaClaimView: React.FC<RpaClaimViewProps> = ({ onShowToast }) => {
         </table>
         {rounds.some((r) => r.증빙대기 > 0) && !compact && (
           <p className="mt-2 text-[11px] text-amber-700">
-            증빙 대기 업체는 「증빙 폴더」의 회차 &gt; 업체 폴더에 전자계산서·수납확인서 2개를 넣으면 몇 초 안에 신청가능으로 바뀝니다.
+            증빙 대기 업체는 「증빙 폴더」의 회차 &gt; 업체 폴더에 증빙 {rounds[0]?.증빙종류?.length ?? 2}개({(rounds[0]?.증빙종류 ?? ['전자계산서', '수납확인서']).join('·')})를 넣으면 몇 초 안에 신청가능으로 바뀝니다.
           </p>
         )}
       </div>

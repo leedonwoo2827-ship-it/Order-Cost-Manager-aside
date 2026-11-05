@@ -13,6 +13,7 @@ interface CompanyTableProps {
 
 const stateColor: Record<CompanyState, string> = {
   신청가능: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+  저장완료: 'border-sky-300 bg-sky-50 text-sky-800',
   신청완료: 'border-indigo-300 bg-indigo-50 text-indigo-800',
   불가: 'border-rose-300 bg-rose-50 text-rose-700',
 };
@@ -66,7 +67,7 @@ export const CompanyTable: React.FC<CompanyTableProps> = ({ businesses, picked, 
               <tr key={b.key} className={`border-t border-slate-100 ${openKey === b.key ? 'bg-amber-50' : ''} ${muted ? 'text-slate-400' : ''}`}>
                 <td className="px-2 py-1.5">
                   <input type="checkbox" disabled={!can} checked={can && picked.has(b.key)} onChange={() => onToggle(b.key)}
-                    title={can ? '이 업체를 실행 대상으로' : '신청가능이고 증빙 2개가 다 있어야 고를 수 있습니다'} />
+                    title={can ? '이 업체를 실행 대상으로' : b.상태 === '저장완료' ? '이미 HRD-Net 에 저장했습니다(정상지급 작성중) — 다시 돌리지 않습니다' : '신청가능이고 증빙이 다 있어야 고를 수 있습니다'} />
                 </td>
                 <td className="px-2 py-1.5 text-slate-400">{index + 1}</td>
                 <td className="max-w-[14rem] truncate px-2 py-1.5 font-semibold text-slate-800" title={b.사업장명}>{b.사업장명 || '-'}</td>
@@ -79,7 +80,15 @@ export const CompanyTable: React.FC<CompanyTableProps> = ({ businesses, picked, 
                 {!compact && <td className="px-2 py-1.5 text-right">{Number(b.훈련인원 || 0).toLocaleString('ko-KR')}명</td>}
                 <td className="px-2 py-1.5 text-right font-semibold">{formatMoney(b.신청금액)}</td>
                 {!compact && <td className="max-w-[12rem] truncate px-2 py-1.5">{muted ? '-' : <EvidenceCell file={b.전자계산서} />}</td>}
-                {!compact && <td className="max-w-[12rem] truncate px-2 py-1.5">{muted ? '-' : <EvidenceCell file={b.수납확인서} />}</td>}
+                {!compact && (
+                  <td className="max-w-[12rem] truncate px-2 py-1.5">
+                    {muted ? '-' : <EvidenceCell file={b.수납확인서} />}
+                    {/* 증빙 3종 작업공간(HRD아카이브) — 셋째부터는 수납확인서 아래에 */}
+                    {!muted && Object.entries(b.증빙 || {}).filter(([k]) => k !== '전자계산서' && k !== '수납확인서').map(([k, f]) => (
+                      <div key={k} className="truncate" title={k}>{k}: <EvidenceCell file={f} /></div>
+                    ))}
+                  </td>
+                )}
                 <td className="px-2 py-1.5">
                   <div className="flex items-center gap-1">
                     <select value={b.상태} onChange={(e) => onState(b, e.target.value as CompanyState)}
@@ -92,8 +101,11 @@ export const CompanyTable: React.FC<CompanyTableProps> = ({ businesses, picked, 
                   </div>
                   {why && <div className="mt-0.5 max-w-[16rem] truncate text-[10px] text-slate-500" title={why}>{why}</div>}
                 </td>
-                <td className="max-w-[9rem] truncate px-2 py-1.5 text-slate-600" title={b.f09 || b.f08}>
-                  {b.f08 ? `${b.f08}${b.f06 ? ` · ${b.f06}` : ''}` : '-'}
+                <td className={`max-w-[11rem] truncate px-2 py-1.5 ${b.상태 === '저장완료' ? 'font-semibold text-sky-800' : 'text-slate-600'}`}
+                  title={[b.f08, b.f06 && `단계 ${b.f06} ${b.f07 || ''}`, b.f09, b.f05 && `끝 ${b.f05}`].filter(Boolean).join('\n')}>
+                  {b.상태 === '저장완료' && b.f05
+                    ? `저장완료 · ${b.f05.slice(5, 16)}`
+                    : b.f08 ? `${b.f08}${b.f06 ? ` · ${b.f06}` : ''}` : '-'}
                 </td>
                 <td className="px-2 py-1.5">
                   <button type="button" onClick={() => onOpen(b)} title="세로 현황 보기"

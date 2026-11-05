@@ -27,8 +27,8 @@ DIR = config.ROOT / "macros"
 MODES = [
     {"id": "simulate", "label": "모의 실행", "hint": "HRD-Net 없이 순서만 훑기", "flag": "--simulate"},
     {"id": "dry-run", "label": "점검", "hint": "화면에서 버튼을 찾기만 하고 누르지 않기", "flag": "--dry-run"},
-    {"id": "fill", "label": "미리 채워 보기", "hint": "최종 신청 직전까지 채우고 멈추기", "flag": "--fill"},
-    {"id": "live", "label": "신청", "hint": "실제 신청. 회차마다 패널에서 사람이 최종 확인", "flag": ""},
+    {"id": "fill", "label": "미리 채워 보기", "hint": "업체 1곳을 채워 보여 주고 [저장] 앞에서 멈추기 — HRD-Net 에 저장하지 않음", "flag": "--fill"},
+    {"id": "live", "label": "신청", "hint": "실제 실행 — 업체 1곳씩 [신청] → 비용등록 → 첨부 → 상단 [저장]까지 (저장까지 매크로)", "flag": ""},
 ]
 
 
@@ -51,7 +51,19 @@ def meta(p: Path) -> dict:
     if f.exists():
         m.update(yaml.safe_load(f.read_text(encoding="utf-8")) or {})
     m["id"] = p.name
+    # v2.2.8 — 최종 신청(confirm) 단계가 없으면 「저장까지」: 업체 1곳씩 [신청] → 상단 [저장]까지만 (대시보드 버튼 문구)
+    try:
+        m["범위"] = "신청까지" if has_confirm(yaml.safe_load((p / "steps.yaml").read_text(encoding="utf-8")) or {}) else "저장까지"
+    except (OSError, yaml.YAMLError):
+        m["범위"] = ""
     return m
+
+
+def has_confirm(sp: dict) -> bool:
+    """매크로에 최종 신청(confirm) 단계가 있는지 — for_each 안쪽까지 본다."""
+    def walk(steps) -> bool:
+        return any(st.get("confirm") or walk(st.get("steps") or []) for st in steps or [] if isinstance(st, dict))
+    return walk(sp.get("steps"))
 
 
 def spec(macro_id: str | None = None) -> dict:

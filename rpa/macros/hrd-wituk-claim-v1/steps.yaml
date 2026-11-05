@@ -1,4 +1,4 @@
-# HRD-Net 위탁 비용신청 v1(기본 · 비용등록·증빙 첨부·저장까지, v2.2.7) — PPT「HRD-net 비용신청 프로세스_화면캡쳐(1019)」+「아직수동클릭해야하는부분」(1029) 반영
+# HRD-Net 위탁 비용신청 v1(기본 · 비용등록·증빙 첨부·저장까지, v2.2.8 — 업체 1곳씩) — PPT「HRD-net 비용신청 프로세스_화면캡쳐(1019)」+「아직수동클릭해야하는부분」(1029) 반영
 #
 # action: focus | click | type | check | attach | wait | screenshot
 #         scroll (anchor 그림 기준 at 자리에서 휠을 굴려 until 그림이 보일 때까지 — v2.2.4 · from_top: 먼저 위로 몇 칸 올릴지 — v2.2.5
@@ -25,11 +25,23 @@
 #   on_skip           업체가 불가로 빠져도 이 단계는 한다(팝업 닫기)    only_on_skip  불가일 때만 한다
 #   confirm           최종 신청 — 실제 신청 모드에서 사람이 [훈련비용 신청]을 눌러야 진행. 미리 채워 보기는 여기서 멈춤
 #   after_round       회차가 끝난 뒤 검색화면(최초 입력 단계)으로 돌아가는 단계
+#   saves             HRD-Net 에 실제로 저장하는 클릭 — 미리 채워 보기는 이 단계 앞에서 멈춘다(저장은 [신청]으로만, v2.2.8)
+#   done_words (alert) 이 말이 든 끝 알림(주황 「알림」 창)을 닫을 때까지 seconds 안에서 기다린다 — 저장 로딩이 8초 넘게 걸림(11/5)
+#   marks_registered  (alert) 이 알림을 닫으면 「비용등록 저장됨」 — 그 뒤 상단 [저장] 전에 멈추면 전체 실행을 멈춘다
+#   marks_saved       (alert) 이 알림을 닫으면 그 업체를 「저장완료」로 남긴다(대시보드 · 다시 고르지 않음)
+# for_each: 사업장 = 고른 업체마다 · 증빙목록 = 업체의 증빙을 종류 순서(local.json evidence, 기본 2개)대로 하나씩
+# 「저장까지」 매크로(최종 신청 단계 없음)는 엔진이 업체 1곳씩 이 순서 전체를 돌린다(v2.2.8): 업체마다 [신청] 1번 = 상단 [저장] 1번
 #   first_round_only  검색화면으로 돌아온 다음 회차에서는 건너뛴다(메뉴 이동)
 # 값 자리표시: {과정명} {회차} {검색시작} {검색종료} {사업장명} {사업장관리번호} {신청금액} {파일}
 # ★ selector(uia/image) 는 가완성 — 담당자 PC 에서 [화면 진단]·[학습 미리채워 보기]로 채운다.
 
 window: ".*(?:HRD.*행정지원|행정지원시스템|Edubion).*"     # 화면 이동에 따라 바뀌는 실제 프로그램 창 제목
+
+# v2.2.8 — 증빙 종류 → 첨부파일 목록에서 붙일 행 이름 그림. 종류와 순서는 local.json "evidence"(없으면 전자계산서·수납확인서).
+# 업체마다 증빙이 3개인 작업공간(HRD아카이브)은 셋째 종류 이름과 그 행 그림을 여기에 더한다. 행이 없는 종류는 그 업체만 불가로 뺀다.
+evidence_rows:
+  전자계산서: "templates/lbl_row_training.png"    # 「훈련비 증명서류」 행
+  수납확인서: "templates/lbl_row_lodging.png"     # 「숙박비 관련」 행
 
 steps:
   # v2.2.2~ — 회차 숫자는 점글꼴 표, 「신청대상」은 글자 그림으로 확인(윈도우 OCR 은 9 를 3 으로 읽음). 검색은 「훈련과정명 + 회차」. 1~3 단계는 사람에게 넘기지 않는다(못 하면 건너뛰거나 이유를 남기고 멈춘다).
@@ -156,12 +168,15 @@ steps:
       - id: "4-6"
         say: "비용등록 팝업 [저장] 클릭"
         action: click
+        saves: true
         target: {scope_image: {image: "templates/costreg_title.png", box: [-60, 25, 1950, 70]}, image: "templates/btn_save_costreg.png", unique: true, learned: "off"}
       - id: "4-6a"
-        say: "저장 확인창 [확인] → '저장되었습니다' 알림 [확인]"
+        say: "'저장되었습니다' 알림 [확인] (저장 로딩이 길면 20초까지 기다림)"
         action: alert
         expect: true
-        seconds: 6
+        seconds: 20                           # v2.2.8 — 11/5 15:27 셋째 업체: [저장] 뒤 로딩 8초 → 6초에 포기하고 멈췄다(녹화 101~109초)
+        done_words: ["저장되었습니다"]
+        marks_registered: true
       - id: "4-s"
         say: "비용등록 팝업 [닫기] (열려 있으면)"
         action: click
@@ -191,41 +206,36 @@ steps:
     max: 80
 
   # 첨부 [첨부] 버튼은 행마다 모양이 같다(10/30 수납확인서가 「유급휴가관련서류」 행에 붙음) → 행 이름 그림과 같은 줄에서만 찾는다
+  # v2.2.8 — 업체 1곳의 증빙을 종류 순서대로(전자계산서 → 수납확인서 → (셋째)) 각자 정해진 행에 붙인다(evidence_rows)
   - id: "5-a"
-    for_each: 전자계산서목록
+    for_each: 증빙목록
     steps:
       - id: "5-1"
-        say: "첨부파일 목록 — 「훈련비 증명서류」 행 [첨부] → {사업장명} 전자계산서"
+        say: "첨부파일 목록 — {증빙종류} 행 [첨부] → {사업장명} {증빙종류}"
         action: attach
         file: "{파일}"
-        target: {scope_image: {image: "templates/lbl_row_training.png", box: [300, -11, 1500, 11]}, image: "templates/btn_attach.png", unique: true, wait: 3, learned: "off"}
-
-  - id: "5-b"
-    for_each: 수납확인서목록
-    steps:
-      - id: "5-2"
-        say: "첨부파일 목록 — 「숙박비 관련」 행 [첨부] → {사업장명} 수납확인서"
-        action: attach
-        file: "{파일}"
-        target: {scope_image: {image: "templates/lbl_row_lodging.png", box: [300, -11, 1500, 11]}, image: "templates/btn_attach.png", unique: true, wait: 3, learned: "off"}
+        target: {scope_image: {image: "{행그림}", box: [300, -11, 1500, 11]}, image: "templates/btn_attach.png", unique: true, wait: 3, learned: "off"}
 
   - id: "6"
     say: "상단 [저장] 클릭"
     action: click
+    saves: true
     target: {image: ["templates/btn_save_main.png", "templates/learned/6_1.png"], unique: true, learned: "off"}
 
   - id: "6a"
-    say: "저장 확인창 [확인] (Confirm 저장하시겠습니까? → 알림 저장이 완료되었습니다)"
+    say: "저장 확인창 [확인] (Confirm 저장하시겠습니까? → 알림 저장이 완료되었습니다) — 목록에 「정상지급(작성중)」 행이 생긴다"
     action: alert
     expect: true
-    seconds: 6
+    seconds: 20                           # v2.2.8 — 끝 알림까지 기다린다(11/5 15:13 늦게 뜬 알림이 화면을 덮어 단계 10 에서 멈춤)
+    done_words: ["완료되었습니다", "저장되었습니다"]
+    marks_saved: true
 
   - id: "6-s"
-    say: "저장 뒤 화면 저장 — 여기까지가 매크로. 고용보험확인·훈련비용 신청은 담당자가 한다"
+    say: "저장 뒤 화면 저장 — 이 업체는 여기까지. 고용보험확인·훈련비용 신청은 담당자가 한다"
     action: screenshot
 
   - id: "10"
-    say: "우측 상단 메뉴검색으로 비용신청관리(위탁) 검색화면에 돌아가 다음 회차"
+    say: "우측 상단 메뉴검색으로 비용신청관리(위탁) 검색화면에 돌아가 다음 업체"
     action: menu_search
     after_round: true
     text: "비용신청관리(위탁)"

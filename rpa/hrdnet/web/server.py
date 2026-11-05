@@ -37,7 +37,7 @@ LOCAL_HOSTS = {"127.0.0.1", "::1"}
 UI_PORT = 0
 # 대시보드(electron/main.cjs RPA_ENGINE_VERSION)와 같아야 한다. 다르면 대시보드가 이 엔진을 끄고 새로 켠다
 # (엔진 창은 최소화로 떠 있어 사람이 찾아 닫기 어렵다). 엔진 코드를 바꾸면 양쪽을 같이 올린다.
-ENGINE_VERSION = "2026-11-05.2"
+ENGINE_VERSION = "2026-11-05.3"
 
 app = FastAPI(title="비용신청 공방")
 
@@ -144,9 +144,10 @@ def _evidence_index(d) -> dict:
     from ..organize import _company_key
 
     idx: dict = {"folder": {}, "flat": {}, "count": {}}
+    kinds = config.evidence()
     for p in d["증빙"].rglob("*.pdf"):
         parts = p.relative_to(d["증빙"]).parts
-        kind = next((k for k, words in config.EVIDENCE.items() if any(w in p.name for w in words)), "")
+        kind = config.evidence_kind(p.name, kinds)
         if len(parts) >= 3:
             ck = _company_key(parts[-2])
             idx["count"][(parts[0], ck)] = idx["count"].get((parts[0], ck), 0) + 1
@@ -174,6 +175,7 @@ def _rounds(d) -> list[dict]:
     from ..organize import _company_key
 
     idx = _evidence_index(d)
+    kinds = list(config.evidence())
     saved = status.load()
     known = status.known_numbers()
     out = []
@@ -189,9 +191,9 @@ def _rounds(d) -> list[dict]:
             if not isinstance(item, dict):
                 continue
             name = str(item.get("사업장명", "")).strip()
-            inv = _find_in_index(idx, folder, name, "전자계산서")
-            rec = _find_in_index(idx, folder, name, "수납확인서")
-            st = status.merged(course, rnd, item, bool(inv), bool(rec), saved)
+            found = {k: _find_in_index(idx, folder, name, k) for k in kinds}
+            missing = [k for k, f in found.items() if not f]
+            st = status.merged(course, rnd, item, missing, saved)
             n = idx["count"].get((folder, _company_key(name)), 0)
             number, number_from = status.resolve_number(item, known)
             businesses.append({
@@ -201,15 +203,18 @@ def _rounds(d) -> list[dict]:
                 "사업자번호": str(item.get("사업자번호", "") or "").strip(),
                 "훈련인원": item.get("훈련인원", 0),
                 "신청금액": item.get("신청금액", 0),
-                "전자계산서": inv.name if inv else "",
-                "수납확인서": rec.name if rec else "",
-                "증빙확인": f"업체 폴더에 PDF {n}개 (2개여야 함)" if n and n != 2 else "",
+                "전자계산서": found["전자계산서"].name if found.get("전자계산서") else "",
+                "수납확인서": found["수납확인서"].name if found.get("수납확인서") else "",
+                "증빙": {k: (f.name if f else "") for k, f in found.items()},   # v2.2.8 — 종류 수는 local.json evidence(기본 2)
+                "증빙완료": not missing,
+                "증빙확인": f"업체 폴더에 PDF {n}개 ({len(kinds)}개여야 함)" if n and n != len(kinds) else "",
                 "제외사유": str(item.get("제외사유", "") or ""),
                 **st,
             })
         ready = sum(1 for b in businesses if b["상태"] == "신청가능")
         # 제외(입금 미확인 등)는 증빙을 기다리는 업체가 아니다
-        waiting = sum(1 for b in businesses if not b["제외사유"] and not (b["전자계산서"] and b["수납확인서"]))
+        waiting = sum(1 for b in businesses if not b["제외사유"] and not b["증빙완료"])
+        saved_n = sum(1 for b in businesses if b["상태"] == "저장완료")
         excluded: dict[str, int] = {}
         for b in businesses:
             if b["제외사유"]:
@@ -217,8 +222,9 @@ def _rounds(d) -> list[dict]:
         out.append({"folder": folder, "과정명": course, "회차": rnd,
                     "사업장": len(businesses), "첨부": list(j.get("첨부", {})),
                     "사업장내역": businesses, "신청가능": ready, "증빙대기": waiting, "제외": excluded,
+                    "저장완료": saved_n, "증빙종류": kinds,
                     "신청금액": j.get("신청금액", 0), "훈련인원": j.get("훈련인원", 0),
-                    "정리": "준비완료" if ready else ("증빙대기" if waiting else "대상없음"),
+                    "정리": "준비완료" if ready else ("증빙대기" if waiting else ("저장완료" if saved_n else "대상없음")),
                     "정리일시": j.get("정리일시", ""), "올리기": up.get("상태") or "미실행", "모드": up.get("모드", ""),
                     "매크로": up.get("매크로", ""), "끝": up.get("끝", ""), "오류": up.get("오류", "")})
     return out
