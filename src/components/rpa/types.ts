@@ -15,7 +15,7 @@ export interface RpaBusiness {
   신청금액: number;
   전자계산서: string;
   수납확인서: string;
-  증빙?: Record<string, string>;   // 종류 → 파일 이름 (종류 수는 local.json evidence — 기본 2, HRD아카이브 3)
+  증빙?: Record<string, string>;   // 종류 → 파일 이름 (종류 수는 local.json evidence — 기본 2, 첨부 3개 과정은 3)
   증빙완료?: boolean;
   증빙확인: string;
   제외사유?: string;     // 대시보드에서 대상이 아닌 행(입금 미확인·부분입금·비용신청 완료) — 업체 수를 맞추려고 같이 온다

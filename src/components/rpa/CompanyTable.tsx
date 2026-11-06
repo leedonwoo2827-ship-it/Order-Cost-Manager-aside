@@ -83,7 +83,7 @@ export const CompanyTable: React.FC<CompanyTableProps> = ({ businesses, picked, 
                 {!compact && (
                   <td className="max-w-[12rem] truncate px-2 py-1.5">
                     {muted ? '-' : <EvidenceCell file={b.수납확인서} />}
-                    {/* 증빙 3종 작업공간(HRD아카이브) — 셋째부터는 수납확인서 아래에 */}
+                    {/* 증빙 3종 과정 — 셋째부터는 수납확인서 아래에 */}
                     {!muted && Object.entries(b.증빙 || {}).filter(([k]) => k !== '전자계산서' && k !== '수납확인서').map(([k, f]) => (
                       <div key={k} className="truncate" title={k}>{k}: <EvidenceCell file={f} /></div>
                     ))}
